@@ -116,7 +116,8 @@ class ResultViewModel(
             // Biarpun meta tag-nya beda (catatan dari teman beda bahasa), sistem akan membiarkannya.
             // User hanya bisa memproses ulang secara paksa kalau menekan "Restore Original".
             if (noteToProcess.summary == null) {
-                processTextAuto(noteToProcess, lang, task, format, currentMeta)
+                val providerForProcessing = settingsRepository.aiProviderFlow.first()
+                processTextAuto(noteToProcess, lang, task, format, currentMeta, providerForProcessing)
             }
         }
     }
@@ -327,10 +328,13 @@ class ResultViewModel(
                 }
                 
                 val userPrompt = "Term to explain: \"$selectedText\""
-                
-                val resultText = if (provider == 1) { // Groq
+
+                // MIX (provider == 2): explanations use Groq (fast for short tasks)
+                val effectiveProviderForExplain: Int = if (provider == 2) 1 else provider
+
+                val resultText = if (effectiveProviderForExplain == 1) { // Groq
                     val request = GroqChatRequest(
-                        model = "llama-3.3-70b-versatile",
+                        model = "openai/gpt-oss-120b",
                         messages = listOf(
                             GroqMessage(role = "system", content = systemPrompt),
                             GroqMessage(role = "user", content = userPrompt)
@@ -448,7 +452,13 @@ class ResultViewModel(
 
                 var transcript: String? = null
 
-                if (provider == 1) { // GROQ PROCESSING
+                // MIX (provider == 2): best tool for the job.
+                // Audio corto -> Groq Whisper (rapido). Audio largo -> Gemini (sin limite).
+                val effectiveProviderForTranscription: Int = if (provider == 2) {
+                    if (file.length() > 25 * 1024 * 1024) 0 else 1
+                } else provider
+
+                if (effectiveProviderForTranscription == 1) { // GROQ PROCESSING
                     if (file.length() > 25 * 1024 * 1024) {
                         launch(Dispatchers.Main) {
                             _error.value = "File is too large for Groq (Max 25MB). Please switch to Gemini in Settings to process long audio files."
@@ -560,9 +570,12 @@ class ResultViewModel(
         """.trimIndent()
         val userPrompt = "Teks:\n${transcript.take(500)}"
 
-        val aiTitle = if (provider == 1) { // Groq
+        // MIX (provider == 2): titles use Groq (fast, lightweight)
+        val effectiveProviderForTitle: Int = if (provider == 2) 1 else provider
+
+        val aiTitle = if (effectiveProviderForTitle == 1) { // Groq
             val request = GroqChatRequest(
-                model = "llama-3.1-8b-instant",
+                model = "openai/gpt-oss-20b",
                 messages = listOf(
                     GroqMessage(role = "system", content = systemPrompt),
                     GroqMessage(role = "user", content = userPrompt)
@@ -584,7 +597,7 @@ class ResultViewModel(
         }
     }
 
-    private fun processTextAuto(currentNote: NoteEntity, language: String, task: Int, format: Int, metaTag: String) {
+    private fun processTextAuto(currentNote: NoteEntity, language: String, task: Int, format: Int, metaTag: String, provider: Int) {
         _isLoading.value = true
         _error.value = null
         _loadingMessage.value = "AI Engine is structuring your note..."
@@ -664,9 +677,12 @@ class ResultViewModel(
                 
                 val userContent = "Process this text strictly into $language:\n\n${currentNote.rawText}"
                 
-                val processedText = if (provider == 1) { // Groq
+                // MIX (provider == 2): text processing always uses Gemini (better for long context)
+                val effectiveProviderForProcessing: Int = if (provider == 2) 0 else provider
+
+                val processedText = if (effectiveProviderForProcessing == 1) { // Groq
                     val request = GroqChatRequest(
-                        model = "llama-3.3-70b-versatile",
+                        model = "openai/gpt-oss-120b",
                         messages = listOf(
                             GroqMessage(role = "system", content = systemPrompt),
                             GroqMessage(role = "user", content = userContent)
