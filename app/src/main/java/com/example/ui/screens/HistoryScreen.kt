@@ -157,7 +157,7 @@ fun HistoryScreen(
         viewModel.checkForAppUpdate(currentVersion)
     }
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             coroutineScope.launch {
                 snackbarHostState.showSnackbar("Importing file...")
@@ -452,7 +452,7 @@ fun HistoryScreen(
                 if (!selectionMode) {
                     with(sharedTransitionScope) {
                         ExtendedFloatingActionButton(
-                            onClick = { importLauncher.launch("*/*") },
+                            onClick = { importLauncher.launch(arrayOf("audio/*", "application/zip", "application/octet-stream")) },
                             expanded = isFabExpanded,
                             icon = { Icon(Icons.Default.Audiotrack, "Import File") },
                             text = { Text("Import File") },
