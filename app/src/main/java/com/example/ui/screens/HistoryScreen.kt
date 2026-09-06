@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -107,7 +108,7 @@ fun HistoryScreen(
     sharedTransitionScope: SharedTransitionScope,
     onNoteClick: (Int) -> Unit,
     onTrashClick: () -> Unit,
-    onImportFile: suspend (Uri) -> Int?
+    onImportFile: suspend (Uri) -> Int? 
 ) {
     val context = LocalContext.current
     val notes by viewModel.filteredNotes.collectAsState()
@@ -134,14 +135,14 @@ fun HistoryScreen(
     var isSearchFocused by remember { mutableStateOf(false) }
 
     val sharedPreferences = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
-    var isGridView by remember { mutableStateOf(sharedPreferences.getBoolean("is_grid_view", true)) }
+    var isGridView by remember { mutableStateOf(sharedPreferences.getBoolean("is_grid_view", true)) } 
 
     val focusManager = LocalFocusManager.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id ->
-        notes.find { it.id == id }?.isPinned == true
+    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id -> 
+        notes.find { it.id == id }?.isPinned == true 
     }
 
     val pinnedNotes = notes.filter { it.isPinned }
@@ -151,11 +152,8 @@ fun HistoryScreen(
     val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
 
     val currentVersion = remember {
-        try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
-        } catch (e: Exception) {
-            "1.0.0"
-        }
+        try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } 
+        catch (e: Exception) { "1.0.0" }
     }
 
     val isTransitioning = animatedVisibilityScope.transition.currentState != animatedVisibilityScope.transition.targetState
@@ -236,18 +234,17 @@ fun HistoryScreen(
         if (drawerState.isOpen) {
             coroutineScope.launch { drawerState.close() }
         } else if (selectionMode) {
-            selectionMode = false
-            selectedNotes = emptySet()
+            selectionMode = false; selectedNotes = emptySet()
         } else if (isSearchFocused) {
-            focusManager.clearFocus()
+            focusManager.clearFocus() 
         } else {
-            viewModel.updateSearchQuery("")
+            viewModel.updateSearchQuery("") 
         }
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = !isTransitioning,
+        gesturesEnabled = !isTransitioning, 
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -259,13 +256,7 @@ fun HistoryScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     Spacer(Modifier.height(24.dp))
-                    Text(
-                        "Sort By",
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
 
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         data class SortOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val description: String)
@@ -279,9 +270,7 @@ fun HistoryScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = index, count = sortOptions.size),
                                 onClick = { viewModel.setSortMode(index) },
                                 selected = sortMode == index
-                            ) {
-                                Icon(option.icon, contentDescription = option.description, modifier = Modifier.size(18.dp))
-                            }
+                            ) { Icon(option.icon, contentDescription = option.description, modifier = Modifier.size(18.dp)) }
                         }
                     }
 
@@ -383,9 +372,9 @@ fun HistoryScreen(
                         label = { Text("Trash", color = MaterialTheme.colorScheme.error) },
                         icon = { Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
                         selected = false,
-                        onClick = {
+                        onClick = { 
                             coroutineScope.launch { drawerState.close() }
-                            onTrashClick()
+                            onTrashClick() 
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
@@ -407,9 +396,7 @@ fun HistoryScreen(
                         TopAppBar(
                             title = { Text("${selectedNotes.size} Selected") },
                             navigationIcon = {
-                                IconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) {
-                                    Icon(Icons.Default.Close, "Cancel")
-                                }
+                                IconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) { Icon(Icons.Default.Close, "Cancel") }
                             },
                             actions = {
                                 IconButton(onClick = { showSelectionMenu = true }) {
@@ -462,7 +449,7 @@ fun HistoryScreen(
                                                         val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
                                                         if (uri != null) {
                                                             val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "application/zip"
+                                                                type = "application/zip" 
                                                                 putExtra(Intent.EXTRA_STREAM, uri)
                                                                 putExtra(Intent.EXTRA_TEXT, "Binot Note: ${noteToShare.title}")
                                                                 flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -483,13 +470,7 @@ fun HistoryScreen(
 
                                     DropdownMenuItem(
                                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.error
-                                            )
-                                        },
+                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                         onClick = {
                                             showDeleteDialog = true
                                             showSelectionMenu = false
@@ -514,8 +495,8 @@ fun HistoryScreen(
                                 }
                             },
                             isGridView = isGridView,
-                            onToggleViewClick = {
-                                isGridView = !isGridView
+                            onToggleViewClick = { 
+                                isGridView = !isGridView 
                                 sharedPreferences.edit().putBoolean("is_grid_view", isGridView).apply()
                             },
                             modifier = Modifier.animateEnterExit(
@@ -539,14 +520,12 @@ fun HistoryScreen(
                             modifier = Modifier
                                 .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
                                 .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
-                                .then(
-                                    with(animatedVisibilityScope) {
-                                        Modifier.animateEnterExit(
-                                            enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
-                                            exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
-                                        )
-                                    }
-                                )
+                                .then(with(animatedVisibilityScope) { 
+                                    Modifier.animateEnterExit(
+                                        enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
+                                        exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
+                                    ) 
+                                })
                         )
                     }
                 }
@@ -557,7 +536,13 @@ fun HistoryScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .dragAndDropTarget(
-                        shouldStartDragAndDrop = { true },
+                        shouldStartDragAndDrop = { event ->
+                            event.mimeTypes().any { mimeType ->
+                                mimeType.startsWith("audio/") ||
+                                mimeType == "application/zip" ||
+                                mimeType == "application/octet-stream"
+                            }
+                        },
                         target = dragAndDropCallback
                     )
             ) {
@@ -589,13 +574,7 @@ fun HistoryScreen(
                             ) {
                                 if (pinnedNotes.isNotEmpty()) {
                                     item(span = StaggeredGridItemSpan.FullLine) {
-                                        Text(
-                                            "Pinned",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
+                                        Text("Pinned", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp))
                                     }
                                     items(pinnedNotes, key = { it.id }) { note ->
                                         DismissibleNoteCard(
@@ -609,33 +588,20 @@ fun HistoryScreen(
                                             viewModel = viewModel,
                                             parentScope = coroutineScope,
                                             snackbarHostState = snackbarHostState,
-                                            onSelect = {
-                                                if (selectionMode) {
-                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id
-                                                    if (selectedNotes.isEmpty()) selectionMode = false
-                                                } else {
-                                                    onNoteClick(note.id)
-                                                }
+                                            onSelect = { 
+                                                if (selectionMode) { 
+                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
+                                                    if (selectedNotes.isEmpty()) selectionMode = false 
+                                                } else { onNoteClick(note.id) }
                                             },
-                                            onLongSelect = {
-                                                if (!selectionMode) {
-                                                    selectionMode = true
-                                                    selectedNotes = setOf(note.id)
-                                                }
-                                            }
+                                            onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
                                         )
                                     }
                                 }
 
                                 if (unpinnedNotes.isNotEmpty()) {
                                     item(span = StaggeredGridItemSpan.FullLine) {
-                                        Text(
-                                            "Collection",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
+                                        Text("Collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 4.dp))
                                     }
                                     items(unpinnedNotes, key = { it.id }) { note ->
                                         DismissibleNoteCard(
@@ -649,20 +615,13 @@ fun HistoryScreen(
                                             viewModel = viewModel,
                                             parentScope = coroutineScope,
                                             snackbarHostState = snackbarHostState,
-                                            onSelect = {
-                                                if (selectionMode) {
-                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id
-                                                    if (selectedNotes.isEmpty()) selectionMode = false
-                                                } else {
-                                                    onNoteClick(note.id)
-                                                }
+                                            onSelect = { 
+                                                if (selectionMode) { 
+                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
+                                                    if (selectedNotes.isEmpty()) selectionMode = false 
+                                                } else { onNoteClick(note.id) }
                                             },
-                                            onLongSelect = {
-                                                if (!selectionMode) {
-                                                    selectionMode = true
-                                                    selectedNotes = setOf(note.id)
-                                                }
-                                            }
+                                            onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
                                         )
                                     }
                                 }
@@ -714,7 +673,7 @@ fun HistoryScreen(
                         }
                     }
                 }
-            }
+            } 
         }
     }
 
@@ -722,14 +681,14 @@ fun HistoryScreen(
         AlertDialog(
             onDismissRequest = { showNewLabelDialog = false },
             title = { Text("Create New Label") },
-            text = {
+            text = { 
                 OutlinedTextField(
-                    value = newLabelInput,
-                    onValueChange = { newLabelInput = it },
-                    label = { Text("Label Name") },
-                    singleLine = true,
+                    value = newLabelInput, 
+                    onValueChange = { newLabelInput = it }, 
+                    label = { Text("Label Name") }, 
+                    singleLine = true, 
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) 
             },
             confirmButton = {
                 Button(onClick = {
@@ -853,34 +812,19 @@ fun HistoryScreen(
                     .padding(horizontal = 24.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.NewReleases,
-                        contentDescription = "Update",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
+                    Icon(Icons.Default.NewReleases, contentDescription = "Update", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        "New Update Available!",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("New Update Available!", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Version ${latestRelease!!.tag_name} is ready to download.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
-                )
+                Text("Version ${latestRelease!!.tag_name} is ready to download.", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                        .nestedScroll(scrollWall)
+                Box(modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.4f), RoundedCornerShape(12.dp))
+                    .nestedScroll(scrollWall)
                 ) {
                     MarkdownText(
                         text = latestRelease!!.body ?: "Performance improvements and new features.",
@@ -895,29 +839,12 @@ fun HistoryScreen(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = {
-                        val apkUrl = latestRelease!!.assets?.firstOrNull()?.browser_download_url ?: latestRelease!!.html_url
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)))
-                        viewModel.dismissUpdateNotification()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp)
-                ) {
-                    Text("Download Update (APK)")
-                }
+                Button(onClick = { val apkUrl = latestRelease!!.assets?.firstOrNull()?.browser_download_url ?: latestRelease!!.html_url; context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("Download Update (APK)") }
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url)))
-                        viewModel.dismissUpdateNotification()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp)
-                ) {
-                    Text("View on GitHub")
-                }
+                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("View on GitHub") }
                 Spacer(modifier = Modifier.height(24.dp))
             }
-        }
+        } 
     }
 }
 
@@ -932,7 +859,7 @@ fun DismissibleNoteCard(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     viewModel: HistoryViewModel,
-    parentScope: CoroutineScope,
+    parentScope: CoroutineScope, 
     snackbarHostState: SnackbarHostState,
     onSelect: () -> Unit,
     onLongSelect: () -> Unit
@@ -986,7 +913,7 @@ fun DismissibleNoteCard(
     ) {
         with(sharedTransitionScope) {
             NoteCard(
-                note = note,
+                note = note, 
                 isSelected = isSelected,
                 selectedLabels = selectedLabels,
                 modifier = Modifier.sharedBounds(
@@ -1013,7 +940,7 @@ fun MorphingSearchBar(
     onMenuClick: () -> Unit,
     isGridView: Boolean,
     onToggleViewClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier 
 ) {
     val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
@@ -1031,12 +958,12 @@ fun MorphingSearchBar(
             .padding(horizontal = outerHorizontalPadding)
     ) {
         AnimatedVisibility(
-            visible = !isFocused,
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()),
+            visible = !isFocused, 
+            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
             exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
         ) {
-            IconButton(onClick = onMenuClick) {
-                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(onClick = onMenuClick) { 
+                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.onSurfaceVariant) 
             }
         }
 
@@ -1050,28 +977,22 @@ fun MorphingSearchBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(start = 16.dp, end = 16.dp, top = innerTopPadding, bottom = 12.dp)
-                    .defaultMinSize(minHeight = 48.dp)
+                    .defaultMinSize(minHeight = 48.dp) 
             ) {
                 Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.width(12.dp))
                 Box(modifier = Modifier.weight(1f)) {
-                    if (query.isEmpty()) {
-                        Text("Search notes...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                    }
+                    if (query.isEmpty()) { Text("Search notes...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) }
                     BasicTextField(
-                        value = query,
-                        onValueChange = onQueryChange,
+                        value = query, onValueChange = onQueryChange,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        singleLine = true,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), singleLine = true,
                         modifier = Modifier.fillMaxWidth().onFocusChanged { onFocusChange(it.isFocused) }
                     )
                 }
                 if (isFocused || query.isNotEmpty()) {
                     Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.clickable { onQueryChange(""); onClearFocus() }
                     )
                 }
@@ -1079,16 +1000,16 @@ fun MorphingSearchBar(
         }
 
         AnimatedVisibility(
-            visible = !isFocused,
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()),
+            visible = !isFocused, 
+            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
             exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
         ) {
-            IconButton(onClick = onToggleViewClick) {
+            IconButton(onClick = onToggleViewClick) { 
                 Icon(
-                    imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView,
-                    contentDescription = "Toggle View Mode",
+                    imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView, 
+                    contentDescription = "Toggle View Mode", 
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                ) 
             }
         }
     }
@@ -1098,12 +1019,12 @@ fun MorphingSearchBar(
 @Composable
 fun NoteCard(
     note: NoteEntity,
-    isSelected: Boolean,
-    selectedLabels: Set<String>,
+    isSelected: Boolean = false,
+    selectedLabels: Set<String> = emptySet(),
     modifier: Modifier = Modifier,
-    onLongClick: () -> Unit,
-    onClick: () -> Unit,
-    onLabelClick: (String) -> Unit
+    onLongClick: () -> Unit = {},
+    onClick: () -> Unit = {},
+    onLabelClick: (String) -> Unit = {}
 ) {
     val formatter = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
     val rawDisplayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else null
@@ -1117,6 +1038,7 @@ fun NoteCard(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(max = 320.dp)
+            .clip(RoundedCornerShape(16.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -1127,29 +1049,14 @@ fun NoteCard(
                         val isLabelActive = label in selectedLabels
                         Box(
                             modifier = Modifier
-                                .background(
-                                    if (isLabelActive) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
-                                    RoundedCornerShape(50)
-                                )
+                                .background(if (isLabelActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f), RoundedCornerShape(50))
                                 .clickable { onLabelClick(label) }
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.Label,
-                                    null,
-                                    tint = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(12.dp)
-                                )
+                                Icon(Icons.Default.Label, null, tint = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(12.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text(
-                                    label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Text(label, style = MaterialTheme.typography.labelSmall, color = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -1159,7 +1066,7 @@ fun NoteCard(
 
             if (note.title.isNotBlank()) {
                 Text(
-                    note.title,
+                    text = note.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
@@ -1172,19 +1079,20 @@ fun NoteCard(
                 CardMarkdownPreview(
                     text = rawDisplayText,
                     maxLines = 7,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.weight(1f, fill = false)
                 )
             } else {
                 Text(
                     text = "⏳ Waiting for AI transcription...",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.weight(1f, fill = false)
                 )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                formatter.format(Date(note.timestamp)),
+                text = formatter.format(Date(note.timestamp)),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
             )
