@@ -510,19 +510,24 @@ fun SettingsScreen(
                         // FIX: Ubah state ke tempAiProvider supaya nggak auto-save
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                             SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                                 onClick = { tempAiProvider = 0 },
                                 selected = tempAiProvider == 0
-                            ) { Text("Gemini") }
+                            ) { Text("Gemini", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                                 onClick = { tempAiProvider = 1 },
                                 selected = tempAiProvider == 1
-                            ) { Text("Groq") }
+                            ) { Text("Groq", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            SegmentedButton(
+                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                                onClick = { tempAiProvider = 2 },
+                                selected = tempAiProvider == 2
+                            ) { Text("Mix (Beta)", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
-                        
+
                         // FIX: Target state baca dari tempAiProvider
                         AnimatedContent(targetState = tempAiProvider, label = "ApiKeyInput") { provider ->
                             if (provider == 0) {
@@ -570,17 +575,71 @@ fun SettingsScreen(
                                     Text("Click here to get the API Key", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys"))) })
                                     Spacer(modifier = Modifier.height(12.dp))
                                     BouncyButton(
-                                        onClick = { 
+                                        onClick = {
                                             viewModel.saveGroqApiKey(groqKeyInput)
                                             viewModel.saveAiProvider(tempAiProvider) // Save sekaligus
                                             isGroqKeyDirty = false
-                                            coroutineScope.launch { snackbarHostState.showSnackbar("Groq Configuration saved!") } 
-                                        }, 
+                                            coroutineScope.launch { snackbarHostState.showSnackbar("Groq Configuration saved!") }
+                                        },
                                         // FIX: Enable kalau ada text beda ATAU provider beda
                                         enabled = isGroqKeyDirty || tempAiProvider != aiProvider,
                                         modifier = Modifier.align(Alignment.End)
-                                    ) { 
-                                        Text("Save Key") 
+                                    ) {
+                                        Text("Save Key")
+                                    }
+                                }
+                            } else {
+                                // Mix (Beta) provider == 2
+                                // No requiere input de key: usa las que ya estan guardadas
+                                Column {
+                                    val geminiKey = geminiKeyInput
+                                    val groqKey = groqKeyInput
+                                    val bothConfigured = geminiKey.isNotBlank() && groqKey.isNotBlank()
+
+                                    Text(
+                                        text = "Mix (Beta) automatically picks the best provider for each task:",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "• Short audio (<25MB) → Groq Whisper (fastest)\n" +
+                                                "• Long audio → Gemini (no size limit)\n" +
+                                                "• Tidy / Summary / Analyze → Gemini Flash (1M context)\n" +
+                                                "• Titles & explanations → Groq gpt-oss (fastest)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    val geminiStatus = if (geminiKey.isNotBlank()) "✓ Configured" else "✗ Not set"
+                                    val groqStatus = if (groqKey.isNotBlank()) "✓ Configured" else "✗ Not set"
+                                    Text(
+                                        text = "Gemini API Key: $geminiStatus",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (geminiKey.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                    )
+                                    Text(
+                                        text = "Groq API Key: $groqStatus",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (groqKey.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    BouncyButton(
+                                        onClick = {
+                                            viewModel.saveAiProvider(tempAiProvider)
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar(
+                                                    if (bothConfigured) "Mix (Beta) enabled!"
+                                                    else "Mix enabled, but you need both API keys to work properly."
+                                                )
+                                            }
+                                        },
+                                        enabled = tempAiProvider != aiProvider,
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Text("Save Selection")
                                     }
                                 }
                             }
