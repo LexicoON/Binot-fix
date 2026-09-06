@@ -538,7 +538,7 @@ fun HistoryScreen(
                     .padding(innerPadding)
                     .dragAndDropTarget(
                         shouldStartDragAndDrop = { event ->
-                            event.mimeTypes().any { mimeType ->
+                            event.mimeTypes.any { mimeType ->
                                 mimeType.startsWith("audio/") ||
                                 mimeType == "application/zip" ||
                                 mimeType == "application/octet-stream"
@@ -575,7 +575,7 @@ fun HistoryScreen(
                         ) {
                             if (pinnedNotes.isNotEmpty()) {
                                 item(span = StaggeredGridItemSpan.FullLine) {
-                                    Text("Pinned", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp))
+                                    Text("Pinned", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                                 }
                                 items(pinnedNotes, key = { it.id }) { note ->
                                     DismissibleNoteCard(
@@ -602,7 +602,7 @@ fun HistoryScreen(
 
                             if (unpinnedNotes.isNotEmpty()) {
                                 item(span = StaggeredGridItemSpan.FullLine) {
-                                    Text("Collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 4.dp))
+                                    Text("Collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                                 }
                                 items(unpinnedNotes, key = { it.id }) { note ->
                                     DismissibleNoteCard(
@@ -633,6 +633,7 @@ fun HistoryScreen(
             }
         }
     }
+}
 
     if (showNewLabelDialog) {
         AlertDialog(
@@ -796,56 +797,56 @@ fun HistoryScreen(
                 }
                 
                 Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = { val apkUrl = latestRelease!!.assets?.firstOrNull()?.browser_download_url ?: latestRelease!!.html_url; context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("Download Update (APK)") }
+                Button(onClick = { val apkUrl = latestRelease!!.assets?.firstOrNull()?.browser_download_url ?: latestRelease!!.html_url; context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Download Update") }
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("View on GitHub") }
+                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth()) { Text("View Release Notes") }
                 Spacer(modifier = Modifier.height(24.dp))
             }
-                } // end Column
-                // Drag and drop visual overlay
-                if (isDragHovering) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .background(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(20.dp)
-                                )
-                                .border(
-                                    width = 3.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = RoundedCornerShape(20.dp)
-                                )
-                                .padding(horizontal = 32.dp, vertical = 24.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Audiotrack,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                "Drop audio to import",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                "Audio files or .binot backups",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        }
-                    }
-                }
-            } // end Box (drag and drop container)
+        }
+    }
+
+    // Drag and drop visual overlay
+    if (isDragHovering) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .background(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                    .border(
+                        width = 3.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
+            ) {
+                Icon(
+                    Icons.Default.Audiotrack,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Drop audio to import",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    "Audio files or .binot backups",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        }
     }
 }
 
@@ -1001,179 +1002,79 @@ fun MorphingSearchBar(
         }
 
         AnimatedVisibility(
-            visible = !isFocused, 
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
+            visible = !isFocused,
+            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()),
             exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
         ) {
-            IconButton(onClick = onToggleViewClick) { 
+            IconButton(onClick = onToggleViewClick) {
                 Icon(
-                    imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView, 
-                    contentDescription = "Toggle View Mode", 
+                    imageVector = if (isGridView) androidx.compose.material.icons.outlined.GridView else androidx.compose.material.icons.outlined.ViewAgenda,
+                    contentDescription = "Toggle View",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
-                ) 
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(
     note: NoteEntity,
-    isSelected: Boolean,
-    selectedLabels: Set<String>,
     modifier: Modifier = Modifier,
-    onLongClick: () -> Unit,
-    onClick: () -> Unit,
-    onLabelClick: (String) -> Unit
+    isSelected: Boolean = false,
+    selectedLabels: Set<String> = emptySet(),
+    onLongClick: () -> Unit = {},
+    onClick: () -> Unit = {},
+    onLabelClick: (String) -> Unit = {}
 ) {
-    val formatter = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
-    val rawDisplayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else null
-
     Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-        ),
-        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 320.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = if (isSelected) 2.dp else 0.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(16.dp)
+            )
+            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            if (!note.label.isNullOrBlank()) {
-                val labels = note.label.split("|").map { it.trim() }.filter { it.isNotBlank() }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    labels.forEach { label ->
-                        val isLabelActive = label in selectedLabels
-                        Box(
-                            modifier = Modifier
-                                .background(if (isLabelActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f), RoundedCornerShape(50))
-                                .clickable { onLabelClick(label) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Label, null, tint = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(label, style = MaterialTheme.typography.labelSmall, color = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                }
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = note.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = note.content,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (note.labels.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(note.labels) { label ->
+                        androidx.compose.material3.AssistChip(
+                            onClick = { onLabelClick(label) },
+                            label = { Text(label, fontSize = 10.sp) },
+                            modifier = Modifier.height(24.dp)
+                        )
+                    }
+                }
             }
-
-            if (note.title.isNotBlank()) {
-                Text(note.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(modifier = Modifier.height(6.dp))
-            }
-
-            if (rawDisplayText != null) {
-                CardMarkdownPreview(
-                    text = rawDisplayText,
-                    maxLines = 7,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-            } else {
-                Text(
-                    text = "⏳ Waiting for AI transcription...",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-            }
-
             Spacer(modifier = Modifier.height(8.dp))
-            Text(formatter.format(Date(note.timestamp)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+            Text(
+                text = note.createdAt,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
-}
-
-@Composable
-fun CardMarkdownPreview(
-    text: String,
-    maxLines: Int = 7,
-    modifier: Modifier = Modifier
-) {
-    val onSurface = MaterialTheme.colorScheme.onSurface
-
-    val cleaned = remember(text) {
-        var t = text
-        t = t.replace(Regex("<!--BINOT_META:.*?-->"), "")
-        t = t.replace(Regex("```mermaid[\\s\\S]*?```", RegexOption.MULTILINE), "")
-        t = t.replace(Regex("\\$\\$[\\s\\S]*?\\$\\$", RegexOption.MULTILINE), "")
-        t = t.replace(Regex("""\$[^$\n]+?\$"""), "")
-        t = t.replace(Regex("^> ?", RegexOption.MULTILINE), "")
-        t.trim()
-    }
-
-    val previewLines = remember(cleaned) {
-        cleaned.lines()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .take(maxLines)
-    }
-
-    val annotated = buildAnnotatedString {
-        previewLines.forEachIndexed { i, line ->
-            when {
-                line.startsWith("# ") -> {
-                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.85f))) {
-                        appendInlineMarkdown(line.removePrefix("# "))
-                    }
-                }
-                line.startsWith("## ") -> {
-                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.75f))) {
-                        appendInlineMarkdown(line.removePrefix("## "))
-                    }
-                }
-                line.startsWith("### ") -> {
-                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.65f))) {
-                        appendInlineMarkdown(line.removePrefix("### "))
-                    }
-                }
-                line.startsWith("- ") || line.startsWith("* ") -> {
-                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
-                        append("• ")
-                        appendInlineMarkdown(line.drop(2))
-                    }
-                }
-                line.matches(Regex("^\\d+\\. .*")) -> {
-                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
-                        appendInlineMarkdown(line.replace(Regex("^\\d+\\. "), ""))
-                    }
-                }
-                else -> {
-                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
-                        appendInlineMarkdown(line)
-                    }
-                }
-            }
-            if (i < previewLines.lastIndex) append("\n")
-        }
-    }
-
-    Text(
-        text = annotated,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-        lineHeight = 17.sp,
-        modifier = modifier
-    )
-}
-
-private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdown(text: String) {
-    val pattern = Regex("\\*\\*(.*?)\\*\\*|\\*(.*?)\\*|_(.*?)_")
-    var cursor = 0
-    for (match in pattern.findAll(text)) {
-        if (match.range.first > cursor) append(text.substring(cursor, match.range.first))
-        when {
-            match.groups[1] != null -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(match.groups[1]!!.value) }
-            match.groups[2] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(match.groups[2]!!.value) }
-            match.groups[3] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(match.groups[3]!!.value) }
-        }
-        cursor = match.range.last + 1
-    }
-    if (cursor < text.length) append(text.substring(cursor))
 }
