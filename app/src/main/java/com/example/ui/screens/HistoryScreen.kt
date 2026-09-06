@@ -37,7 +37,6 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -108,13 +107,13 @@ fun HistoryScreen(
     sharedTransitionScope: SharedTransitionScope,
     onNoteClick: (Int) -> Unit,
     onTrashClick: () -> Unit,
-    onImportFile: suspend (Uri) -> Int? 
+    onImportFile: suspend (Uri) -> Int?
 ) {
     val context = LocalContext.current
     val notes by viewModel.filteredNotes.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val latestRelease by viewModel.latestRelease.collectAsState()
-    
+
     val uniqueLabels by viewModel.uniqueLabels.collectAsState()
     val selectedLabels by viewModel.selectedLabels.collectAsState()
     val isMultiSelectLabelMode by viewModel.isMultiSelectLabelMode.collectAsState()
@@ -133,16 +132,16 @@ fun HistoryScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     var isSearchFocused by remember { mutableStateOf(false) }
-    
+
     val sharedPreferences = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
-    var isGridView by remember { mutableStateOf(sharedPreferences.getBoolean("is_grid_view", true)) } 
-    
+    var isGridView by remember { mutableStateOf(sharedPreferences.getBoolean("is_grid_view", true)) }
+
     val focusManager = LocalFocusManager.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id -> 
-        notes.find { it.id == id }?.isPinned == true 
+    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id ->
+        notes.find { it.id == id }?.isPinned == true
     }
 
     val pinnedNotes = notes.filter { it.isPinned }
@@ -152,8 +151,11 @@ fun HistoryScreen(
     val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
 
     val currentVersion = remember {
-        try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } 
-        catch (e: Exception) { "1.0.0" }
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
+        } catch (e: Exception) {
+            "1.0.0"
+        }
     }
 
     val isTransitioning = animatedVisibilityScope.transition.currentState != animatedVisibilityScope.transition.targetState
@@ -176,7 +178,6 @@ fun HistoryScreen(
         }
     }
 
-    // Drag and drop state
     var isDragHovering by remember { mutableStateOf(false) }
 
     val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
@@ -235,17 +236,18 @@ fun HistoryScreen(
         if (drawerState.isOpen) {
             coroutineScope.launch { drawerState.close() }
         } else if (selectionMode) {
-            selectionMode = false; selectedNotes = emptySet()
+            selectionMode = false
+            selectedNotes = emptySet()
         } else if (isSearchFocused) {
-            focusManager.clearFocus() 
+            focusManager.clearFocus()
         } else {
-            viewModel.updateSearchQuery("") 
+            viewModel.updateSearchQuery("")
         }
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = !isTransitioning, 
+        gesturesEnabled = !isTransitioning,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -257,7 +259,13 @@ fun HistoryScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     Spacer(Modifier.height(24.dp))
-                    Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Sort By",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
 
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         data class SortOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val description: String)
@@ -271,7 +279,9 @@ fun HistoryScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = index, count = sortOptions.size),
                                 onClick = { viewModel.setSortMode(index) },
                                 selected = sortMode == index
-                            ) { Icon(option.icon, contentDescription = option.description, modifier = Modifier.size(18.dp)) }
+                            ) {
+                                Icon(option.icon, contentDescription = option.description, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
 
@@ -368,14 +378,14 @@ fun HistoryScreen(
 
                     Spacer(Modifier.height(16.dp))
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    
+
                     NavigationDrawerItem(
                         label = { Text("Trash", color = MaterialTheme.colorScheme.error) },
                         icon = { Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
                         selected = false,
-                        onClick = { 
+                        onClick = {
                             coroutineScope.launch { drawerState.close() }
-                            onTrashClick() 
+                            onTrashClick()
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
@@ -397,7 +407,9 @@ fun HistoryScreen(
                         TopAppBar(
                             title = { Text("${selectedNotes.size} Selected") },
                             navigationIcon = {
-                                IconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) { Icon(Icons.Default.Close, "Cancel") }
+                                IconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) {
+                                    Icon(Icons.Default.Close, "Cancel")
+                                }
                             },
                             actions = {
                                 IconButton(onClick = { showSelectionMenu = true }) {
@@ -435,7 +447,7 @@ fun HistoryScreen(
                                             showSelectionMenu = false
                                         }
                                     )
-                                    
+
                                     if (selectedNotes.size == 1) {
                                         DropdownMenuItem(
                                             text = { Text("Share") },
@@ -443,14 +455,14 @@ fun HistoryScreen(
                                             onClick = {
                                                 val noteId = selectedNotes.first()
                                                 val noteToShare = notes.find { it.id == noteId }
-                                                
+
                                                 if (noteToShare != null) {
                                                     coroutineScope.launch {
                                                         snackbarHostState.showSnackbar("Generating .binot file...")
                                                         val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
                                                         if (uri != null) {
                                                             val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "application/zip" 
+                                                                type = "application/zip"
                                                                 putExtra(Intent.EXTRA_STREAM, uri)
                                                                 putExtra(Intent.EXTRA_TEXT, "Binot Note: ${noteToShare.title}")
                                                                 flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -461,7 +473,7 @@ fun HistoryScreen(
                                                         }
                                                     }
                                                 }
-                                                
+
                                                 selectionMode = false
                                                 selectedNotes = emptySet()
                                                 showSelectionMenu = false
@@ -471,7 +483,13 @@ fun HistoryScreen(
 
                                     DropdownMenuItem(
                                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        },
                                         onClick = {
                                             showDeleteDialog = true
                                             showSelectionMenu = false
@@ -496,8 +514,8 @@ fun HistoryScreen(
                                 }
                             },
                             isGridView = isGridView,
-                            onToggleViewClick = { 
-                                isGridView = !isGridView 
+                            onToggleViewClick = {
+                                isGridView = !isGridView
                                 sharedPreferences.edit().putBoolean("is_grid_view", isGridView).apply()
                             },
                             modifier = Modifier.animateEnterExit(
@@ -521,12 +539,14 @@ fun HistoryScreen(
                             modifier = Modifier
                                 .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
                                 .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
-                                .then(with(animatedVisibilityScope) { 
-                                    Modifier.animateEnterExit(
-                                        enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
-                                        exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
-                                    ) 
-                                })
+                                .then(
+                                    with(animatedVisibilityScope) {
+                                        Modifier.animateEnterExit(
+                                            enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
+                                            exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
+                                        )
+                                    }
+                                )
                         )
                     }
                 }
@@ -537,116 +557,179 @@ fun HistoryScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .dragAndDropTarget(
-                        shouldStartDragAndDrop = { event ->
-                            event.mimeTypes.any { mimeType ->
-                                mimeType.startsWith("audio/") ||
-                                mimeType == "application/zip" ||
-                                mimeType == "application/octet-stream"
-                            }
-                        },
+                        shouldStartDragAndDrop = { true },
                         target = dragAndDropCallback
                     )
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                if (notes.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = if (searchQuery.isNotEmpty() || selectedLabels.isNotEmpty()) "No results found." else "No notes yet.\nStart recording or import audio!",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                } else {
-                    with(animatedVisibilityScope) {
-                        LazyVerticalStaggeredGrid(
-                            columns = StaggeredGridCells.Fixed(if (isGridView) 2 else 1),
-                            state = gridState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f)
-                                .padding(horizontal = 8.dp)
-                                .animateEnterExit(
-                                    enter = slideInVertically(initialOffsetY = { 100 }, animationSpec = tween(300)) + fadeIn(tween(300)),
-                                    exit = slideOutVertically(targetOffsetY = { 100 }, animationSpec = tween(300)) + fadeOut(tween(300))
-                                ),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalItemSpacing = 8.dp
-                        ) {
-                            if (pinnedNotes.isNotEmpty()) {
-                                item(span = StaggeredGridItemSpan.FullLine) {
-                                    Text("Pinned", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    if (notes.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (searchQuery.isNotEmpty() || selectedLabels.isNotEmpty()) "No results found." else "No notes yet.\nStart recording or import audio!",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    } else {
+                        with(animatedVisibilityScope) {
+                            LazyVerticalStaggeredGrid(
+                                columns = StaggeredGridCells.Fixed(if (isGridView) 2 else 1),
+                                state = gridState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp)
+                                    .animateEnterExit(
+                                        enter = slideInVertically(initialOffsetY = { 100 }, animationSpec = tween(300)) + fadeIn(tween(300)),
+                                        exit = slideOutVertically(targetOffsetY = { 100 }, animationSpec = tween(300)) + fadeOut(tween(300))
+                                    ),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalItemSpacing = 8.dp
+                            ) {
+                                if (pinnedNotes.isNotEmpty()) {
+                                    item(span = StaggeredGridItemSpan.FullLine) {
+                                        Text(
+                                            "Pinned",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    items(pinnedNotes, key = { it.id }) { note ->
+                                        DismissibleNoteCard(
+                                            note = note,
+                                            modifier = Modifier.animateItem(),
+                                            isSelected = selectedNotes.contains(note.id),
+                                            selectedLabels = selectedLabels,
+                                            selectionMode = selectionMode,
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                            viewModel = viewModel,
+                                            parentScope = coroutineScope,
+                                            snackbarHostState = snackbarHostState,
+                                            onSelect = {
+                                                if (selectionMode) {
+                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id
+                                                    if (selectedNotes.isEmpty()) selectionMode = false
+                                                } else {
+                                                    onNoteClick(note.id)
+                                                }
+                                            },
+                                            onLongSelect = {
+                                                if (!selectionMode) {
+                                                    selectionMode = true
+                                                    selectedNotes = setOf(note.id)
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
-                                items(pinnedNotes, key = { it.id }) { note ->
-                                    DismissibleNoteCard(
-                                        note = note,
-                                        modifier = Modifier.animateItem(),
-                                        isSelected = selectedNotes.contains(note.id),
-                                        selectedLabels = selectedLabels,
-                                        selectionMode = selectionMode,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        viewModel = viewModel,
-                                        parentScope = coroutineScope,
-                                        snackbarHostState = snackbarHostState,
-                                        onSelect = { 
-                                            if (selectionMode) { 
-                                                selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
-                                                if (selectedNotes.isEmpty()) selectionMode = false 
-                                            } else { onNoteClick(note.id) }
-                                        },
-                                        onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
-                                    )
-                                }
-                            }
 
-                            if (unpinnedNotes.isNotEmpty()) {
-                                item(span = StaggeredGridItemSpan.FullLine) {
-                                    Text("Collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                if (unpinnedNotes.isNotEmpty()) {
+                                    item(span = StaggeredGridItemSpan.FullLine) {
+                                        Text(
+                                            "Collection",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    items(unpinnedNotes, key = { it.id }) { note ->
+                                        DismissibleNoteCard(
+                                            note = note,
+                                            modifier = Modifier.animateItem(),
+                                            isSelected = selectedNotes.contains(note.id),
+                                            selectedLabels = selectedLabels,
+                                            selectionMode = selectionMode,
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                            viewModel = viewModel,
+                                            parentScope = coroutineScope,
+                                            snackbarHostState = snackbarHostState,
+                                            onSelect = {
+                                                if (selectionMode) {
+                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id
+                                                    if (selectedNotes.isEmpty()) selectionMode = false
+                                                } else {
+                                                    onNoteClick(note.id)
+                                                }
+                                            },
+                                            onLongSelect = {
+                                                if (!selectionMode) {
+                                                    selectionMode = true
+                                                    selectedNotes = setOf(note.id)
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
-                                items(unpinnedNotes, key = { it.id }) { note ->
-                                    DismissibleNoteCard(
-                                        note = note,
-                                        modifier = Modifier.animateItem(),
-                                        isSelected = selectedNotes.contains(note.id),
-                                        selectedLabels = selectedLabels,
-                                        selectionMode = selectionMode,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        viewModel = viewModel,
-                                        parentScope = coroutineScope,
-                                        snackbarHostState = snackbarHostState,
-                                        onSelect = { 
-                                            if (selectionMode) { 
-                                                selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
-                                                if (selectedNotes.isEmpty()) selectionMode = false 
-                                            } else { onNoteClick(note.id) }
-                                        },
-                                        onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
-                                    )
-                                }
+                                item(span = StaggeredGridItemSpan.FullLine) { Spacer(modifier = Modifier.height(100.dp)) }
                             }
-                            item(span = StaggeredGridItemSpan.FullLine) { Spacer(modifier = Modifier.height(100.dp)) }
+                        }
+                    }
+                }
+
+                if (isDragHovering) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .border(
+                                    width = 3.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 32.dp, vertical = 24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Audiotrack,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Drop audio to import",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                "Audio files or .binot backups",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                         }
                     }
                 }
             }
         }
     }
-}
 
     if (showNewLabelDialog) {
         AlertDialog(
             onDismissRequest = { showNewLabelDialog = false },
             title = { Text("Create New Label") },
-            text = { 
+            text = {
                 OutlinedTextField(
-                    value = newLabelInput, 
-                    onValueChange = { newLabelInput = it }, 
-                    label = { Text("Label Name") }, 
-                    singleLine = true, 
+                    value = newLabelInput,
+                    onValueChange = { newLabelInput = it },
+                    label = { Text("Label Name") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
-                ) 
+                )
             },
             confirmButton = {
                 Button(onClick = {
@@ -770,19 +853,34 @@ fun HistoryScreen(
                     .padding(horizontal = 24.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.NewReleases, contentDescription = "Update", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                    Icon(
+                        Icons.Default.NewReleases,
+                        contentDescription = "Update",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("New Update Available!", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(
+                        "New Update Available!",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Version ${latestRelease!!.tag_name} is ready to download.", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(
+                    "Version ${latestRelease!!.tag_name} is ready to download.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
                 Spacer(modifier = Modifier.height(16.dp))
-                
-                Box(modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.4f), RoundedCornerShape(12.dp))
-                    .nestedScroll(scrollWall)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        .nestedScroll(scrollWall)
                 ) {
                     MarkdownText(
                         text = latestRelease!!.body ?: "Performance improvements and new features.",
@@ -795,56 +893,29 @@ fun HistoryScreen(
                         modifier = Modifier.fillMaxSize().padding(16.dp)
                     )
                 }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = { val apkUrl = latestRelease!!.assets?.firstOrNull()?.browser_download_url ?: latestRelease!!.html_url; context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))) }, modifier = Modifier.fillMaxWidth()) { Text("Download Update") }
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth()) { Text("View Release Notes") }
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        }
-    }
 
-    // Drag and drop visual overlay
-    if (isDragHovering) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .background(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .border(
-                        width = 3.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .padding(horizontal = 32.dp, vertical = 24.dp)
-            ) {
-                Icon(
-                    Icons.Default.Audiotrack,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(48.dp)
-                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = {
+                        val apkUrl = latestRelease!!.assets?.firstOrNull()?.browser_download_url ?: latestRelease!!.html_url
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)))
+                        viewModel.dismissUpdateNotification()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text("Download Update (APK)")
+                }
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    "Drop audio to import",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    "Audio files or .binot backups",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url)))
+                        viewModel.dismissUpdateNotification()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text("View on GitHub")
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -861,7 +932,7 @@ fun DismissibleNoteCard(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     viewModel: HistoryViewModel,
-    parentScope: CoroutineScope, 
+    parentScope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
     onSelect: () -> Unit,
     onLongSelect: () -> Unit
@@ -915,7 +986,7 @@ fun DismissibleNoteCard(
     ) {
         with(sharedTransitionScope) {
             NoteCard(
-                note = note, 
+                note = note,
                 isSelected = isSelected,
                 selectedLabels = selectedLabels,
                 modifier = Modifier.sharedBounds(
@@ -942,11 +1013,11 @@ fun MorphingSearchBar(
     onMenuClick: () -> Unit,
     isGridView: Boolean,
     onToggleViewClick: () -> Unit,
-    modifier: Modifier = Modifier 
+    modifier: Modifier = Modifier
 ) {
     val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
-    
+
     val cornerRadius by animateDpAsState(targetValue = if (isFocused) 0.dp else 50.dp, animationSpec = spring(), label = "corner")
     val topMargin by animateDpAsState(targetValue = if (isFocused) 0.dp else safeTopMargin + 8.dp, animationSpec = spring(), label = "tMargin")
     val innerTopPadding by animateDpAsState(targetValue = if (isFocused) safeTopMargin + 16.dp else 12.dp, animationSpec = spring(), label = "innerTopPad")
@@ -960,12 +1031,12 @@ fun MorphingSearchBar(
             .padding(horizontal = outerHorizontalPadding)
     ) {
         AnimatedVisibility(
-            visible = !isFocused, 
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
+            visible = !isFocused,
+            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()),
             exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
         ) {
-            IconButton(onClick = onMenuClick) { 
-                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.onSurfaceVariant) 
+            IconButton(onClick = onMenuClick) {
+                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
@@ -979,22 +1050,28 @@ fun MorphingSearchBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(start = 16.dp, end = 16.dp, top = innerTopPadding, bottom = 12.dp)
-                    .defaultMinSize(minHeight = 48.dp) 
+                    .defaultMinSize(minHeight = 48.dp)
             ) {
                 Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.width(12.dp))
                 Box(modifier = Modifier.weight(1f)) {
-                    if (query.isEmpty()) { Text("Search notes...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) }
+                    if (query.isEmpty()) {
+                        Text("Search notes...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                    }
                     BasicTextField(
-                        value = query, onValueChange = onQueryChange,
+                        value = query,
+                        onValueChange = onQueryChange,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), singleLine = true,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth().onFocusChanged { onFocusChange(it.isFocused) }
                     )
                 }
                 if (isFocused || query.isNotEmpty()) {
                     Icon(
-                        imageVector = Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.clickable { onQueryChange(""); onClearFocus() }
                     )
                 }
@@ -1008,8 +1085,8 @@ fun MorphingSearchBar(
         ) {
             IconButton(onClick = onToggleViewClick) {
                 Icon(
-                    imageVector = if (isGridView) androidx.compose.material.icons.outlined.GridView else androidx.compose.material.icons.outlined.ViewAgenda,
-                    contentDescription = "Toggle View",
+                    imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView,
+                    contentDescription = "Toggle View Mode",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1017,64 +1094,188 @@ fun MorphingSearchBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(
     note: NoteEntity,
+    isSelected: Boolean,
+    selectedLabels: Set<String>,
     modifier: Modifier = Modifier,
-    isSelected: Boolean = false,
-    selectedLabels: Set<String> = emptySet(),
-    onLongClick: () -> Unit = {},
-    onClick: () -> Unit = {},
-    onLabelClick: (String) -> Unit = {}
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+    onLabelClick: (String) -> Unit
 ) {
+    val formatter = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
+    val rawDisplayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else null
+
     Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        ),
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(
-                width = if (isSelected) 2.dp else 0.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = RoundedCornerShape(16.dp)
-            )
-            .clickable(onClick = onClick)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            .heightIn(max = 320.dp)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = note.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = note.content,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (note.labels.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(note.labels) { label ->
-                        androidx.compose.material3.AssistChip(
-                            onClick = { onLabelClick(label) },
-                            label = { Text(label, fontSize = 10.sp) },
-                            modifier = Modifier.height(24.dp)
-                        )
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (!note.label.isNullOrBlank()) {
+                val labels = note.label.split("|").map { it.trim() }.filter { it.isNotBlank() }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    labels.forEach { label ->
+                        val isLabelActive = label in selectedLabels
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isLabelActive) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                                    RoundedCornerShape(50)
+                                )
+                                .clickable { onLabelClick(label) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Label,
+                                    null,
+                                    tint = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
             }
+
+            if (note.title.isNotBlank()) {
+                Text(
+                    note.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
+            if (rawDisplayText != null) {
+                CardMarkdownPreview(
+                    text = rawDisplayText,
+                    maxLines = 7,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Text(
+                    text = "⏳ Waiting for AI transcription...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = note.createdAt,
+                formatter.format(Date(note.timestamp)),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
             )
         }
     }
+}
+
+@Composable
+fun CardMarkdownPreview(
+    text: String,
+    maxLines: Int = 7,
+    modifier: Modifier = Modifier
+) {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+
+    val cleaned = remember(text) {
+        var t = text
+        t = t.replace(Regex("<!--BINOT_META:.*?-->"), "")
+        t = t.replace(Regex("```mermaid[\\s\\S]*?```", RegexOption.MULTILINE), "")
+        t = t.replace(Regex("\\$\\$[\\s\\S]*?\\$\\$", RegexOption.MULTILINE), "")
+        t = t.replace(Regex("""\$[^$\n]+?\$"""), "")
+        t = t.replace(Regex("^> ?", RegexOption.MULTILINE), "")
+        t.trim()
+    }
+
+    val previewLines = remember(cleaned) {
+        cleaned.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .take(maxLines)
+    }
+
+    val annotated = buildAnnotatedString {
+        previewLines.forEachIndexed { i, line ->
+            when {
+                line.startsWith("# ") -> {
+                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.85f))) {
+                        appendInlineMarkdown(line.removePrefix("# "))
+                    }
+                }
+                line.startsWith("## ") -> {
+                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.75f))) {
+                        appendInlineMarkdown(line.removePrefix("## "))
+                    }
+                }
+                line.startsWith("### ") -> {
+                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.65f))) {
+                        appendInlineMarkdown(line.removePrefix("### "))
+                    }
+                }
+                line.startsWith("- ") || line.startsWith("* ") -> {
+                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
+                        append("• ")
+                        appendInlineMarkdown(line.drop(2))
+                    }
+                }
+                line.matches(Regex("^\\d+\\. .*")) -> {
+                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
+                        appendInlineMarkdown(line.replace(Regex("^\\d+\\. "), ""))
+                    }
+                }
+                else -> {
+                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
+                        appendInlineMarkdown(line)
+                    }
+                }
+            }
+            if (i < previewLines.lastIndex) append("\n")
+        }
+    }
+
+    Text(
+        text = annotated,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        lineHeight = 17.sp,
+        modifier = modifier
+    )
+}
+
+private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdown(text: String) {
+    val pattern = Regex("\\*\\*(.*?)\\*\\*|\\*(.*?)\\*|_(.*?)_")
+    var cursor = 0
+    for (match in pattern.findAll(text)) {
+        if (match.range.first > cursor) append(text.substring(cursor, match.range.first))
+        when {
+            match.groups[1] != null -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(match.groups[1]!!.value) }
+            match.groups[2] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(match.groups[2]!!.value) }
+            match.groups[3] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(match.groups[3]!!.value) }
+        }
+        cursor = match.range.last + 1
+    }
+    if (cursor < text.length) append(text.substring(cursor))
 }
