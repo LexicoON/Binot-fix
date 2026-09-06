@@ -27,8 +27,10 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -40,6 +42,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccessTime
@@ -167,6 +172,61 @@ fun HistoryScreen(
                 } else {
                     snackbarHostState.showSnackbar("Failed to import file! Ensure the format is supported.")
                 }
+            }
+        }
+    }
+
+    // Drag and drop state
+    var isDragHovering by remember { mutableStateOf(false) }
+
+    val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
+        object : DragAndDropTarget {
+            override fun onStarted(event: DragAndDropEvent) {
+                isDragHovering = true
+            }
+            override fun onEnded(event: DragAndDropEvent) {
+                isDragHovering = false
+            }
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                isDragHovering = false
+                val activity = context as? android.app.Activity
+                val androidEvent = event.toAndroidDragEvent()
+                val permission = activity?.requestDragAndDropPermissions(androidEvent)
+
+                val clipData = androidEvent.clipData
+                if (clipData != null && clipData.itemCount > 0) {
+                    var firstImportedId: Int? = null
+                    var successCount = 0
+                    var failCount = 0
+                    coroutineScope.launch {
+                        for (i in 0 until clipData.itemCount) {
+                            val uri = clipData.getItemAt(i).uri
+                            if (uri != null) {
+                                val newId = onImportFile(uri)
+                                if (newId != null) {
+                                    successCount++
+                                    if (firstImportedId == null) firstImportedId = newId
+                                } else {
+                                    failCount++
+                                }
+                            }
+                        }
+                        permission?.release()
+                        val msg = when {
+                            failCount == 0 && successCount > 1 -> "Imported $successCount files!"
+                            failCount == 0 -> "Imported successfully!"
+                            successCount == 0 -> "Failed to import any files. Ensure format is supported."
+                            else -> "Imported $successCount, failed $failCount."
+                        }
+                        snackbarHostState.showSnackbar(msg)
+                        if (firstImportedId != null && clipData.itemCount == 1) {
+                            onNoteClick(firstImportedId)
+                        }
+                    }
+                    return true
+                }
+                permission?.release()
+                return false
             }
         }
     }
@@ -472,9 +532,24 @@ fun HistoryScreen(
                 }
             }
         ) { innerPadding ->
-            Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .dragAndDropTarget(
+                        shouldStartDragAndDrop = { event ->
+                            event.mimeTypes().any { mimeType ->
+                                mimeType.startsWith("audio/") ||
+                                mimeType == "application/zip" ||
+                                mimeType == "application/octet-stream"
+                            }
+                        },
+                        target = dragAndDropCallback
+                    )
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
                 if (notes.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = if (searchQuery.isNotEmpty() || selectedLabels.isNotEmpty()) "No results found." else "No notes yet.\nStart recording or import audio!",
                             style = MaterialTheme.typography.titleLarge,
@@ -726,7 +801,51 @@ fun HistoryScreen(
                 OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("View on GitHub") }
                 Spacer(modifier = Modifier.height(24.dp))
             }
-        }
+                } // end Column
+                // Drag and drop visual overlay
+                if (isDragHovering) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .border(
+                                    width = 3.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 32.dp, vertical = 24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Audiotrack,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Drop audio to import",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                "Audio files or .binot backups",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                }
+            } // end Box (drag and drop container)
     }
 }
 
