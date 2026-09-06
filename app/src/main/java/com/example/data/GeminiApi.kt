@@ -35,7 +35,7 @@ data class Part(
 
 data class FileData(
     val mimeType: String,
-    val fileUri: String 
+    val fileUri: String
 )
 
 data class GenerateContentResponse(
@@ -60,7 +60,7 @@ data class GeminiFile(
     val name: String,
     val uri: String,
     val mimeType: String,
-    val state: String 
+    val state: String
 )
 
 // --- Groq Models ---
@@ -153,7 +153,7 @@ interface GroqApiService {
 
 interface GithubApiService {
     @Headers("User-Agent: BinotApp")
-    @GET("repos/DENSLnetion/Binot/releases/latest")
+    @GET("repos/LexicoON/Binot-fix/releases/latest")
     suspend fun getLatestRelease(): GithubRelease
 }
 
