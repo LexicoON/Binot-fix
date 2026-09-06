@@ -141,6 +141,8 @@ fun SettingsScreen(
 
     var showInfoDialog by remember { mutableStateOf(false) }
     var showAiInfoDialog by remember { mutableStateOf(false) }
+    var showTaskInfoDialog by remember { mutableStateOf(false) }
+    var showFormatInfoDialog by remember { mutableStateOf(false) }
     var showWarningDialog by remember { mutableStateOf(false) }
     var pendingModeSelection by remember { mutableStateOf(-1) }
     
@@ -189,6 +191,36 @@ fun SettingsScreen(
             title = { Text("AI Providers") },
             text = { Text("Google Gemini:\nBest for complex content such as math, chemistry, and Mermaid diagrams. Supports long audio files.\n\nGroq AI (Recommended):\nBlazing fast and ideal for daily use. Audio uploads are limited to 25 MB.") },
             confirmButton = { TextButton(onClick = { showAiInfoDialog = false }) { Text("Got it") } }
+        )
+    }
+
+    if (showTaskInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showTaskInfoDialog = false },
+            title = { Text("Processing Tasks") },
+            text = {
+                Text(
+                    "Tidy Up:\nFixes typos, grammar, and removes filler words. Preserves your original meaning and tone. Best for cleaning up rough drafts.\n\n" +
+                    "Summary:\nExtracts the core information into a concise summary. Best for long notes where you just want the key points.\n\n" +
+                    "Analyze:\nIdentifies main points, underlying sentiments, and any action items or decisions. Best for meeting notes or study material."
+                )
+            },
+            confirmButton = { TextButton(onClick = { showTaskInfoDialog = false }) { Text("Got it") } }
+        )
+    }
+
+    if (showFormatInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showFormatInfoDialog = false },
+            title = { Text("Output Formats") },
+            text = {
+                Text(
+                    "Paragraphs:\nContinuous prose with headings. Best for reading and for content that flows naturally (essays, journals, stories).\n\n" +
+                    "Bullets:\nShort, scannable points organized by heading. Best for quick reference, action items, and structured data.\n\n" +
+                    "Tip: Combine Tidy Up + Bullets for clean checklists. Combine Summary + Paragraphs for a readable executive summary."
+                )
+            },
+            confirmButton = { TextButton(onClick = { showFormatInfoDialog = false }) { Text("Got it") } }
         )
     }
 
@@ -383,7 +415,19 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // AI Task
-                        Text("Processing Task", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        ) {
+                            Text("Processing Task", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { showTaskInfoDialog = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = "Task Info", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            }
+                        }
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
@@ -405,7 +449,19 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // AI Format
-                        Text("Output Format", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        ) {
+                            Text("Output Format", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { showFormatInfoDialog = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = "Format Info", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            }
+                        }
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
