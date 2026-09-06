@@ -104,7 +104,7 @@ data class GithubAsset(
 // --- Retrofit Services ---
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-2.5-flash:generateContent")
+    @POST("v1beta/models/gemini-flash-latest:generateContent")
     suspend fun generateContent(
         @Query("key") apiKey: String,
         @Body request: GenerateContentRequest
@@ -199,4 +199,3 @@ object RetrofitClient {
             .create(GithubApiService::class.java)
     }
 }
-
