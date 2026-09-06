@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.Content
 import com.example.data.GenerateContentRequest
+import com.example.data.GroqChatRequest
+import com.example.data.GroqMessage
 import com.example.data.NoteEntity
 import com.example.data.NoteRepository
 import com.example.data.Part
@@ -130,12 +132,12 @@ class RecordViewModel(
         timerJob = null
     }
 
-    suspend fun saveNote(recordMode: Int): Boolean {
+    suspend fun saveNote(recordMode: Int, provider: Int = 0): Boolean {
         delay(300)
 
         val text = if (recordMode == 1) "Pending Transcription" else recognizedText.value.trim()
-        val path = pendingAudioPath 
-        
+        val path = pendingAudioPath
+
         // Mencegah save kalau mode Google tapi teksnya kosong
         if (recordMode == 0 && text.isEmpty()) {
             return false
@@ -148,7 +150,7 @@ class RecordViewModel(
             isPinned = false,
             audioPath = path
         )
-        
+
         val id = withContext(Dispatchers.IO) { repository.insert(note).toInt() }
 
         if (apiKey.isNotBlank() && recordMode == 0) {
@@ -162,11 +164,26 @@ class RecordViewModel(
                         - Gunakan bahasa yang sama dengan teks input.
                         Teks: ${text.take(500)}
                     """.trimIndent()
-                    val request = GenerateContentRequest(
-                        contents = listOf(Content(parts = listOf(Part(text = prompt))))
-                    )
-                    val response = RetrofitClient.service.generateContent(apiKey, request)
-                    val aiTitle = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+                    val aiTitle = if (provider == 1) {
+                        // Groq path (provider == 1)
+                        val request = GroqChatRequest(
+                            model = "openai/gpt-oss-20b",
+                            messages = listOf(
+                                GroqMessage(role = "system", content = "You are a title generator. Output ONLY a 3-5 word title in the same language as the input. No quotes, no explanation."),
+                                GroqMessage(role = "user", content = prompt)
+                            )
+                        )
+                        RetrofitClient.groqService.generateContent("Bearer $apiKey", request)
+                            .choices?.firstOrNull()?.message?.content?.trim()
+                    } else {
+                        // Gemini path (provider == 0)
+                        val request = GenerateContentRequest(
+                            contents = listOf(Content(parts = listOf(Part(text = prompt))))
+                        )
+                        RetrofitClient.service.generateContent(apiKey, request)
+                            .candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+                    }
+
                     if (!aiTitle.isNullOrBlank()) {
                         val savedNote = repository.getNoteById(id)
                         if (savedNote != null) {
