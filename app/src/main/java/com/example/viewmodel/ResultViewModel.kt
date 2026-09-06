@@ -330,7 +330,7 @@ class ResultViewModel(
                 
                 val resultText = if (provider == 1) { // Groq
                     val request = GroqChatRequest(
-                        model = "llama-3.3-70b-versatile",
+                        model = "openai/gpt-oss-120b",
                         messages = listOf(
                             GroqMessage(role = "system", content = systemPrompt),
                             GroqMessage(role = "user", content = userPrompt)
@@ -551,7 +551,7 @@ class ResultViewModel(
 
         val aiTitle = if (provider == 1) { // Groq
             val request = GroqChatRequest(
-                model = "llama-3.1-8b-instant",
+                model = "openai/gpt-oss-20b",
                 messages = listOf(
                     GroqMessage(role = "system", content = systemPrompt),
                     GroqMessage(role = "user", content = userPrompt)
@@ -646,7 +646,7 @@ class ResultViewModel(
                 
                 val processedText = if (provider == 1) { // Groq
                     val request = GroqChatRequest(
-                        model = "llama-3.3-70b-versatile",
+                        model = "openai/gpt-oss-120b",
                         messages = listOf(
                             GroqMessage(role = "system", content = systemPrompt),
                             GroqMessage(role = "user", content = userContent)
