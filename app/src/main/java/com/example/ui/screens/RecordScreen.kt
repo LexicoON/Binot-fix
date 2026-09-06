@@ -62,6 +62,7 @@ fun RecordScreen(
     viewModel: RecordViewModel,
     userName: String,
     recordMode: Int,
+    aiProvider: Int = 0,
     snackbarHostState: SnackbarHostState,
     animatedVisibilityScope: AnimatedVisibilityScope,
     sharedTransitionScope: SharedTransitionScope,
@@ -579,7 +580,7 @@ fun RecordScreen(
                                                 viewModel.stopRecordingInstant()
 
                                                 coroutineScope.launch {
-                                                    val saved = viewModel.saveNote(recordMode)
+                                                    val saved = viewModel.saveNote(recordMode, aiProvider)
                                                     snackbarHostState.showSnackbar(
                                                         message = if (saved) "Note saved" else "No text to save",
                                                         duration = SnackbarDuration.Short
