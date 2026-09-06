@@ -111,7 +111,7 @@ fun SettingsScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val recordMode by viewModel.recordMode.collectAsState() 
     val aiProvider by viewModel.aiProvider.collectAsState() 
-    
+
     // AI Preferences State (Actual Saved Data)
     val aiLanguage by viewModel.aiLanguage.collectAsState()
     val aiTask by viewModel.aiTask.collectAsState()
@@ -121,8 +121,6 @@ fun SettingsScreen(
     var tempAiLanguage by remember(aiLanguage) { mutableStateOf(aiLanguage) }
     var tempAiTask by remember(aiTask) { mutableStateOf(aiTask) }
     var tempAiFormat by remember(aiFormat) { mutableStateOf(aiFormat) }
-    
-    // FIX: State temporary untuk AI Provider supaya nggak auto-save
     var tempAiProvider by remember(aiProvider) { mutableStateOf(aiProvider) }
 
     val updateState by viewModel.updateState.collectAsState()
@@ -134,7 +132,7 @@ fun SettingsScreen(
     var geminiKeyInput by remember(geminiApiKey) { mutableStateOf(geminiApiKey) }
     var groqKeyInput by remember(groqApiKey) { mutableStateOf(groqApiKey) }
 
-    // Dirty Flags (Buat deteksi apakah ada pergerakan ketikan di kolom input)
+    // Dirty Flags
     var isNameDirty by remember { mutableStateOf(false) }
     var isGeminiKeyDirty by remember { mutableStateOf(false) }
     var isGroqKeyDirty by remember { mutableStateOf(false) }
@@ -145,14 +143,10 @@ fun SettingsScreen(
     var showFormatInfoDialog by remember { mutableStateOf(false) }
     var showWarningDialog by remember { mutableStateOf(false) }
     var pendingModeSelection by remember { mutableStateOf(-1) }
-    
-    // Dialog untuk Save Apply to All
     var showApplyAllDialog by remember { mutableStateOf(false) }
-
-    // Bottom Sheet for Language Selection
     var showLanguageSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
-    
+
     val supportedLanguages = listOf(
         "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)", 
         "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese", 
@@ -163,11 +157,11 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val formatter = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-    
+
     val currentVersion = remember {
         try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" }
     }
-    
+
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let { viewModel.exportBackup(context, it) { msg -> coroutineScope.launch { snackbarHostState.showSnackbar(msg) } } }
     }
@@ -180,7 +174,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
             title = { Text("Recording Modes") },
-            text = { Text("Fast:\nFaster, battery efficient, moderate accuracy. Real-time transcription. Original audio is NOT SAVED on your device.\n\nAccurate:\nHigher accuracy, requires internet connection.") },
+            text = { Text("Fast:\nFaster, battery efficient, moderate accuracy. Real-time transcription. Original audio is NOT SAVED on your device.\n\nAccurate:\nHigher accuracy, requires internet. Transcription processes later when you open the note. Live transcription is disabled. Original audio is SAVED on your device.") },
             confirmButton = { TextButton(onClick = { showInfoDialog = false }) { Text("Got it") } }
         )
     }
@@ -189,7 +183,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showAiInfoDialog = false },
             title = { Text("AI Providers") },
-            text = { Text("Google Gemini:\nBest for complex content such as math, chemistry, and Mermaid diagrams. Supports long audio files.\n\nGroq AI (Recommended):\nBlazing fast and ideal for simple tasks.") },
+            text = { Text("Google Gemini:\nBest for complex content such as math, chemistry, and Mermaid diagrams. Supports long audio files.\n\nGroq AI (Recommended):\nBlazing fast and ideal for daily use. Audio uploads are limited to 25 MB.") },
             confirmButton = { TextButton(onClick = { showAiInfoDialog = false }) { Text("Got it") } }
         )
     }
@@ -245,12 +239,12 @@ fun SettingsScreen(
             dismissButton = { TextButton(onClick = { showWarningDialog = false; pendingModeSelection = -1 }) { Text("Cancel") } }
         )
     }
-    
+
     if (showApplyAllDialog) {
         AlertDialog(
             onDismissRequest = { showApplyAllDialog = false },
             title = { Text("Save & Apply to All Notes?") },
-            text = { Text("This will save your new preferences and reset the AI-generated results for all previous notes. They will be re-processed using your new preferences the next time you open them.") },
+            text = { Text("This will save your new preferences and reset the AI-generated results for all previous notes. They will be re-processed using your new preferences the next time you open them. Your original raw transcripts are completely safe.\n\nContinue?") },
             confirmButton = {
                 Button(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -273,7 +267,7 @@ fun SettingsScreen(
 
     if (showLanguageSheet) {
         ModalBottomSheet(
-             onDismissRequest = { showLanguageSheet = false; languageSearchQuery = "" },
+            onDismissRequest = { showLanguageSheet = false; languageSearchQuery = "" },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f).padding(horizontal = 16.dp)) {
@@ -292,11 +286,11 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
                 )
-                
+
                 val filteredLanguages = supportedLanguages.filter { 
                     it.contains(languageSearchQuery, ignoreCase = true) 
                 }
-                
+
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     items(filteredLanguages) { lang ->
                         Row(
@@ -327,8 +321,7 @@ fun SettingsScreen(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
-        
-        // FIX: Menggunakan displayCutout untuk margin aman bagian atas
+
         val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
         val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
 
@@ -339,7 +332,7 @@ fun SettingsScreen(
                     .padding(bottom = innerPadding.calculateBottomPadding())
                     .padding(horizontal = 16.dp)
                     .verticalScroll(rememberScrollState())
-                    .animateEnterExit(enter = slideInVertically(initialOffsetY = { 100 }, animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)) + fadeIn(tween(300)))
+                    .animateEnterExit(enter = slideInVertically(initialOffsetY = { 100 }, animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)) + fadeIn()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Spacer(modifier = Modifier.height(safeTopMargin + 4.dp))
@@ -374,7 +367,7 @@ fun SettingsScreen(
                                 isNameDirty = false 
                                 coroutineScope.launch { snackbarHostState.showSnackbar("Name saved successfully!") } 
                             }, 
-                             enabled = isNameDirty, 
+                            enabled = isNameDirty, 
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Save Name")
@@ -388,8 +381,8 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text("Global AI Preferences", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                        Text("Notes will be automatically processed using these settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
-                        
+                        Text("Notes will be automatically processed using these settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+
                         // Output Language Selector
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -409,7 +402,7 @@ fun SettingsScreen(
                                     Text(tempAiLanguage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                             Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -438,7 +431,7 @@ fun SettingsScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                                 onClick = { tempAiTask = 1 },
                                 selected = tempAiTask == 1
-                             ) { Text("Summary", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            ) { Text("Summary", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                                 onClick = { tempAiTask = 2 },
@@ -473,11 +466,11 @@ fun SettingsScreen(
                                 onClick = { tempAiFormat = 1 },
                                 selected = tempAiFormat == 1
                             ) { Text("Bullets") }
-                         }
-                        
+                        }
+
                         Spacer(modifier = Modifier.height(24.dp))
                         val isChanged = tempAiLanguage != aiLanguage || tempAiTask != aiTask || tempAiFormat != aiFormat
-                        
+
                         BouncyButton(
                             onClick = { showApplyAllDialog = true },
                             modifier = Modifier.fillMaxWidth(),
@@ -493,11 +486,11 @@ fun SettingsScreen(
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
-                 ) {
+                ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                             modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("AI Configuration", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.weight(1f))
@@ -506,8 +499,7 @@ fun SettingsScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // FIX: Ubah state ke tempAiProvider supaya nggak auto-save
+
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
@@ -528,7 +520,6 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // FIX: Target state baca dari tempAiProvider
                         AnimatedContent(targetState = tempAiProvider, label = "ApiKeyInput") { provider ->
                             when (provider) {
                                 0 -> {
@@ -544,7 +535,7 @@ fun SettingsScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Text("Click here to get the API Key", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://makersuite.google.com/app/apikey"))) })
+                                        Text("Click here to get the API Key", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/app/apikey"))) })
                                         Spacer(modifier = Modifier.height(12.dp))
                                         BouncyButton(
                                             onClick = { 
@@ -590,7 +581,6 @@ fun SettingsScreen(
                                     }
                                 }
                                 else -> {
-                                    // Mix (Beta) provider == 2
                                     Column {
                                         val geminiKey = geminiKeyInput
                                         val groqKey = groqKeyInput
@@ -679,7 +669,7 @@ fun SettingsScreen(
                                 },
                                 selected = recordMode == 0
                             ) { Text("Fast") }
-                             SegmentedButton(
+                            SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                                 onClick = { 
                                     if (recordMode != 1) {
@@ -698,7 +688,7 @@ fun SettingsScreen(
                 }
 
                 Card(
-                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
@@ -708,15 +698,15 @@ fun SettingsScreen(
                             SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 0, count = 4), onClick = { viewModel.saveThemeMode(0) }, selected = themeMode == 0) { Text("Auto") }
                             SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 1, count = 4), onClick = { viewModel.saveThemeMode(1) }, selected = themeMode == 1) { Text("Light") }
                             SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 2, count = 4), onClick = { viewModel.saveThemeMode(2) }, selected = themeMode == 2) { Text("Dark") }
-                            SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 3, count = 4), onClick = { viewModel.saveThemeMode(3) }, selected = themeMode == 3) { Text("Amoled") }
+                            SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 3, count = 4), onClick = { viewModel.saveThemeMode(3) }, selected = themeMode == 3) { Text("Amoled", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp) }
                         }
-                     }
+                    }
                 }
 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
-                 ) {
+                ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text("Data & System", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(16.dp))
@@ -725,9 +715,9 @@ fun SettingsScreen(
                             Row(horizontalArrangement = Arrangement.End) {
                                 BouncyOutlinedButton(onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, modifier = Modifier.padding(end = 8.dp)) { Text("Import") }
                                 BouncyButton(onClick = { exportLauncher.launch("Binot_Backup_${formatter.format(Date())}.binotbak") }) { Text("Backup") }
-                             }
+                            }
                         }
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
                         Spacer(modifier = Modifier.height(16.dp))
@@ -736,7 +726,7 @@ fun SettingsScreen(
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text("App Version", style = MaterialTheme.typography.bodyLarge)
                                 Text("v$currentVersion", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                                 
+
                                 if (updateState == UpdateState.Downloading) {
                                     val animatedProgress by animateFloatAsState(targetValue = downloadProgress / 100f, label = "progress")
                                     Spacer(Modifier.height(8.dp))
@@ -757,14 +747,14 @@ fun SettingsScreen(
                                     UpdateState.Checking -> Button(onClick = {}, enabled = false) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) }
                                     UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }) { Text("Update App") }
                                     UpdateState.Downloading -> OutlinedButton(onClick = {}) { Text("Downloading") }
-                                    UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                                    UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                    UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
+                                    UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Retry") }
                                 }
                             }
                         }
                     }
                 }
-                
+
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp),
@@ -772,7 +762,7 @@ fun SettingsScreen(
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/densl"))
                         context.startActivity(intent)
                     }
-                 ) {
+                ) {
                     Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.LocalCafe, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(16.dp))
@@ -790,7 +780,7 @@ fun SettingsScreen(
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://saweria.co/Densl"))
                         context.startActivity(intent)
                     }
-                 ) {
+                ) {
                     Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(16.dp))
