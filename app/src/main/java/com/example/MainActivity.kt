@@ -1,1060 +1,321 @@
-package com.example.ui.screens
+package com.example
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.EnterExitState
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.items
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Label
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NewReleases
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.ViewAgenda
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import com.example.data.NoteEntity
-import com.example.ui.components.MarkdownText
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import com.example.ui.screens.HistoryScreen
+import com.example.ui.screens.OnboardingScreen
+import com.example.ui.screens.RecordScreen
+import com.example.ui.screens.ResultScreen
+import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.TrashScreen
+import com.example.ui.theme.BinotTheme
 import com.example.utils.ImportExportHelper
 import com.example.viewmodel.HistoryViewModel
-import kotlinx.coroutines.CoroutineScope
+import com.example.viewmodel.RecordViewModel
+import com.example.viewmodel.ResultViewModel
+import com.example.viewmodel.SettingsViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
+class MainActivity : ComponentActivity() {
+    
+    // Penampung reaktif URI yang datang dari luar (WhatsApp / File Manager)
+    val incomingIntentUri = MutableStateFlow<Uri?>(null)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        enableEdgeToEdge()
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(WindowInsetsCompat.Type.statusBars())
+
+        val appContainer = (application as BinotApplication).container
+
+        // Tangkap intent saat app baru dinyalakan
+        handleIntent(intent)
+
+        setContent {
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.provideFactory(
+                    appContainer.settingsRepository, 
+                    appContainer.noteRepository
+                )
+            )
+            val themeMode by settingsViewModel.themeMode.collectAsState()
+
+            BinotTheme(themeMode = themeMode) {
+                BinotApp(appContainer, settingsViewModel, this)
+            }
+        }
+    }
+
+    // Tangkap intent saat app udah jalan (SingleTask)
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW && intent.data != null) {
+            incomingIntentUri.value = intent.data
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun HistoryScreen(
-    viewModel: HistoryViewModel,
-    animatedVisibilityScope: AnimatedVisibilityScope,
-    sharedTransitionScope: SharedTransitionScope,
-    onNoteClick: (Int) -> Unit,
-    onTrashClick: () -> Unit,
-    onImportFile: suspend (Uri) -> Int? 
-) {
+fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, mainActivity: MainActivity) {
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val userName by settingsViewModel.userName.collectAsState()
+
+    val isDataLoaded by settingsViewModel.isDataLoaded.collectAsState()
     val context = LocalContext.current
-    val notes by viewModel.filteredNotes.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val latestRelease by viewModel.latestRelease.collectAsState()
-    
-    val uniqueLabels by viewModel.uniqueLabels.collectAsState()
-    val selectedLabels by viewModel.selectedLabels.collectAsState()
-    val isMultiSelectLabelMode by viewModel.isMultiSelectLabelMode.collectAsState()
-    val sortMode by viewModel.sortMode.collectAsState()
-
-    var selectionMode by remember { mutableStateOf(false) }
-    var selectedNotes by remember { mutableStateOf(setOf<Int>()) }
-    var showSelectionMenu by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showNewLabelDialog by remember { mutableStateOf(false) }
-    var newLabelInput by remember { mutableStateOf("") }
-
-    var labelBeingManaged by remember { mutableStateOf<String?>(null) }
-    var renameLabelInput by remember { mutableStateOf("") }
-    var showDeleteMultipleLabelsDialog by remember { mutableStateOf(false) }
-
-    val snackbarHostState = remember { SnackbarHostState() }
-    var isSearchFocused by remember { mutableStateOf(false) }
-    
-    val sharedPreferences = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
-    var isGridView by remember { mutableStateOf(sharedPreferences.getBoolean("is_grid_view", true)) } 
-    
-    val focusManager = LocalFocusManager.current
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
-
-    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id -> 
-        notes.find { it.id == id }?.isPinned == true 
-    }
-
-    val pinnedNotes = notes.filter { it.isPinned }
-    val unpinnedNotes = notes.filter { !it.isPinned }
-
-    val gridState = rememberLazyStaggeredGridState()
-    val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
-
-    val currentVersion = remember {
-        try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } 
-        catch (e: Exception) { "1.0.0" }
-    }
-
-    val isTransitioning = animatedVisibilityScope.transition.currentState != animatedVisibilityScope.transition.targetState
-
-    LaunchedEffect(Unit) {
-        viewModel.checkForAppUpdate(currentVersion)
-    }
-
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Importing file...")
-                val newId = onImportFile(it)
-                if (newId != null) {
-                    onNoteClick(newId)
-                } else {
-                    snackbarHostState.showSnackbar("Failed to import file! Ensure the format is supported.")
-                }
-            }
-        }
-    }
-
-    BackHandler(enabled = isSearchFocused || searchQuery.isNotEmpty() || selectionMode || drawerState.isOpen) {
-        if (drawerState.isOpen) {
-            coroutineScope.launch { drawerState.close() }
-        } else if (selectionMode) {
-            selectionMode = false; selectedNotes = emptySet()
-        } else if (isSearchFocused) {
-            focusManager.clearFocus() 
-        } else {
-            viewModel.updateSearchQuery("") 
-        }
-    }
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        gesturesEnabled = !isTransitioning, 
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.width(280.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Spacer(Modifier.height(24.dp))
-                    Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                        data class SortOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val description: String)
-                        val sortOptions = listOf(
-                            SortOption(androidx.compose.material.icons.Icons.Default.AccessTime, "Newest"),
-                            SortOption(androidx.compose.material.icons.Icons.Default.History, "Oldest"),
-                            SortOption(androidx.compose.material.icons.Icons.AutoMirrored.Default.Sort, "A–Z")
-                        )
-                        sortOptions.forEachIndexed { index, option ->
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = index, count = sortOptions.size),
-                                onClick = { viewModel.setSortMode(index) },
-                                selected = sortMode == index
-                            ) { Icon(option.icon, contentDescription = option.description, modifier = Modifier.size(18.dp)) }
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            "Labels",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (isMultiSelectLabelMode && selectedLabels.isNotEmpty()) {
-                            IconButton(onClick = { showDeleteMultipleLabelsDialog = true }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete Selected Labels", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                        IconButton(onClick = { viewModel.setMultiSelectLabelMode(!isMultiSelectLabelMode) }) {
-                            Icon(
-                                Icons.Default.Checklist,
-                                contentDescription = "Toggle Multi-Select",
-                                tint = if (isMultiSelectLabelMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    NavigationDrawerItem(
-                        label = { Text("All Notes") },
-                        selected = selectedLabels.isEmpty(),
-                        onClick = {
-                            viewModel.clearLabelFilter()
-                            if (!isMultiSelectLabelMode) coroutineScope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-
-                    uniqueLabels.forEach { label ->
-                        val isLabelSelected = label in selectedLabels
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp, vertical = 4.dp)
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(28.dp))
-                                .background(
-                                    if (isLabelSelected) MaterialTheme.colorScheme.secondaryContainer
-                                    else Color.Transparent
-                                )
-                                .combinedClickable(
-                                    onClick = {
-                                        viewModel.toggleLabelFilter(label)
-                                        if (!isMultiSelectLabelMode) coroutineScope.launch { drawerState.close() }
-                                    },
-                                    onLongClick = {
-                                        labelBeingManaged = label
-                                        renameLabelInput = label
-                                    }
-                                )
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
-                        ) {
-                            if (isMultiSelectLabelMode) {
-                                Checkbox(
-                                    checked = isLabelSelected,
-                                    onCheckedChange = { viewModel.toggleLabelFilter(label) }
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Default.Label,
-                                    contentDescription = null,
-                                    tint = if (isLabelSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                label,
-                                color = if (isLabelSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.labelLarge
-                            )
-                        }
-                    }
-
-                    NavigationDrawerItem(
-                        label = { Text("Create New Label") },
-                        icon = { Icon(Icons.Default.Add, null) },
-                        selected = false,
-                        onClick = { showNewLabelDialog = true; coroutineScope.launch { drawerState.close() } },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-
-                    Spacer(Modifier.height(16.dp))
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    
-                    NavigationDrawerItem(
-                        label = { Text("Trash", color = MaterialTheme.colorScheme.error) },
-                        icon = { Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
-                        selected = false,
-                        onClick = { 
-                            coroutineScope.launch { drawerState.close() }
-                            onTrashClick() 
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-
-                    Spacer(Modifier.height(24.dp))
-                }
-            }
-        }
-    ) {
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            topBar = {
-                if (selectionMode) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)
-                    ) {
-                        TopAppBar(
-                            title = { Text("${selectedNotes.size} Selected") },
-                            navigationIcon = {
-                                IconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) { Icon(Icons.Default.Close, "Cancel") }
-                            },
-                            actions = {
-                                IconButton(onClick = { showSelectionMenu = true }) {
-                                    Icon(Icons.Default.MoreVert, contentDescription = "Options")
-                                }
-                                DropdownMenu(
-                                    expanded = showSelectionMenu,
-                                    onDismissRequest = { showSelectionMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Select All") },
-                                        leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
-                                        onClick = {
-                                            selectedNotes = notes.map { it.id }.toSet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(if (isAllPinned) "Unpin" else "Pin") },
-                                        leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
-                                        onClick = {
-                                            viewModel.togglePinMultiple(selectedNotes, !isAllPinned)
-                                            selectionMode = false
-                                            selectedNotes = emptySet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Clone") },
-                                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                                        onClick = {
-                                            viewModel.cloneMultiple(selectedNotes)
-                                            selectionMode = false
-                                            selectedNotes = emptySet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                    
-                                    if (selectedNotes.size == 1) {
-                                        DropdownMenuItem(
-                                            text = { Text("Share") },
-                                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                                            onClick = {
-                                                val noteId = selectedNotes.first()
-                                                val noteToShare = notes.find { it.id == noteId }
-                                                
-                                                if (noteToShare != null) {
-                                                    coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar("Generating .binot file...")
-                                                        val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
-                                                        if (uri != null) {
-                                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "application/zip" 
-                                                                putExtra(Intent.EXTRA_STREAM, uri)
-                                                                putExtra(Intent.EXTRA_TEXT, "Binot Note: ${noteToShare.title}")
-                                                                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                            }
-                                                            context.startActivity(Intent.createChooser(sendIntent, "Share .binot note via"))
-                                                        } else {
-                                                            snackbarHostState.showSnackbar("Failed to generate file.")
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                selectionMode = false
-                                                selectedNotes = emptySet()
-                                                showSelectionMenu = false
-                                            }
-                                        )
-                                    }
-
-                                    DropdownMenuItem(
-                                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                                        onClick = {
-                                            showDeleteDialog = true
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                }
-                            },
-                            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-                        )
-                    }
-                } else {
-                    with(animatedVisibilityScope) {
-                        MorphingSearchBar(
-                            query = searchQuery,
-                            onQueryChange = { viewModel.updateSearchQuery(it) },
-                            isFocused = isSearchFocused,
-                            onFocusChange = { isSearchFocused = it },
-                            onClearFocus = { focusManager.clearFocus() },
-                            onMenuClick = {
-                                if (!isTransitioning) {
-                                    coroutineScope.launch { drawerState.open() }
-                                }
-                            },
-                            isGridView = isGridView,
-                            onToggleViewClick = { 
-                                isGridView = !isGridView 
-                                sharedPreferences.edit().putBoolean("is_grid_view", isGridView).apply()
-                            },
-                            modifier = Modifier.animateEnterExit(
-                                enter = scaleIn(initialScale = 0.9f, animationSpec = tween(300)) + fadeIn(tween(300)),
-                                exit = scaleOut(targetScale = 0.9f, animationSpec = tween(300)) + fadeOut(tween(300))
-                            )
-                        )
-                    }
-                }
-            },
-            floatingActionButton = {
-                if (!selectionMode) {
-                    with(sharedTransitionScope) {
-                        ExtendedFloatingActionButton(
-                            onClick = { importLauncher.launch(arrayOf("audio/*", "application/zip", "application/octet-stream")) },
-                            expanded = isFabExpanded,
-                            icon = { Icon(Icons.Default.Audiotrack, "Import File") },
-                            text = { Text("Import File") },
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier
-                                .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
-                                .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
-                                .then(with(animatedVisibilityScope) { 
-                                    Modifier.animateEnterExit(
-                                        enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
-                                        exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
-                                    ) 
-                                })
-                        )
-                    }
-                }
-            }
-        ) { innerPadding ->
-            Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                if (notes.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = if (searchQuery.isNotEmpty() || selectedLabels.isNotEmpty()) "No results found." else "No notes yet.\nStart recording or import audio!",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                } else {
-                    with(animatedVisibilityScope) {
-                        LazyVerticalStaggeredGrid(
-                            columns = StaggeredGridCells.Fixed(if (isGridView) 2 else 1),
-                            state = gridState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f)
-                                .padding(horizontal = 8.dp)
-                                .animateEnterExit(
-                                    enter = slideInVertically(initialOffsetY = { 100 }, animationSpec = tween(300)) + fadeIn(tween(300)),
-                                    exit = slideOutVertically(targetOffsetY = { 100 }, animationSpec = tween(300)) + fadeOut(tween(300))
-                                ),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalItemSpacing = 8.dp
-                        ) {
-                            if (pinnedNotes.isNotEmpty()) {
-                                item(span = StaggeredGridItemSpan.FullLine) {
-                                    Text("Pinned", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp))
-                                }
-                                items(pinnedNotes, key = { it.id }) { note ->
-                                    DismissibleNoteCard(
-                                        note = note,
-                                        modifier = Modifier.animateItem(),
-                                        isSelected = selectedNotes.contains(note.id),
-                                        selectedLabels = selectedLabels,
-                                        selectionMode = selectionMode,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        viewModel = viewModel,
-                                        parentScope = coroutineScope,
-                                        snackbarHostState = snackbarHostState,
-                                        onSelect = { 
-                                            if (selectionMode) { 
-                                                selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
-                                                if (selectedNotes.isEmpty()) selectionMode = false 
-                                            } else { onNoteClick(note.id) }
-                                        },
-                                        onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
-                                    )
-                                }
-                            }
-
-                            if (unpinnedNotes.isNotEmpty()) {
-                                item(span = StaggeredGridItemSpan.FullLine) {
-                                    Text("Collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 4.dp))
-                                }
-                                items(unpinnedNotes, key = { it.id }) { note ->
-                                    DismissibleNoteCard(
-                                        note = note,
-                                        modifier = Modifier.animateItem(),
-                                        isSelected = selectedNotes.contains(note.id),
-                                        selectedLabels = selectedLabels,
-                                        selectionMode = selectionMode,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        viewModel = viewModel,
-                                        parentScope = coroutineScope,
-                                        snackbarHostState = snackbarHostState,
-                                        onSelect = { 
-                                            if (selectionMode) { 
-                                                selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
-                                                if (selectedNotes.isEmpty()) selectionMode = false 
-                                            } else { onNoteClick(note.id) }
-                                        },
-                                        onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
-                                    )
-                                }
-                            }
-                            item(span = StaggeredGridItemSpan.FullLine) { Spacer(modifier = Modifier.height(100.dp)) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showNewLabelDialog) {
-        AlertDialog(
-            onDismissRequest = { showNewLabelDialog = false },
-            title = { Text("Create New Label") },
-            text = { 
-                OutlinedTextField(
-                    value = newLabelInput, 
-                    onValueChange = { newLabelInput = it }, 
-                    label = { Text("Label Name") }, 
-                    singleLine = true, 
-                    modifier = Modifier.fillMaxWidth()
-                ) 
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (newLabelInput.isNotBlank()) {
-                        viewModel.createIndependentLabel(newLabelInput.trim())
-                        showNewLabelDialog = false
-                        newLabelInput = ""
-                    }
-                }) { Text("Create Label") }
-            },
-            dismissButton = { TextButton(onClick = { showNewLabelDialog = false }) { Text("Cancel") } }
-        )
-    }
-
-    if (labelBeingManaged != null) {
-        AlertDialog(
-            onDismissRequest = { labelBeingManaged = null },
-            title = { Text("Edit Label") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = renameLabelInput,
-                        onValueChange = { renameLabelInput = it },
-                        label = { Text("Label Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TextButton(
-                        onClick = {
-                            labelBeingManaged?.let { viewModel.deleteLabel(it) }
-                            labelBeingManaged = null
-                        },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Delete Label")
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val oldLabel = labelBeingManaged
-                    if (oldLabel != null && renameLabelInput.isNotBlank() && renameLabelInput.trim() != oldLabel) {
-                        viewModel.renameLabel(oldLabel, renameLabelInput.trim())
-                    }
-                    labelBeingManaged = null
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { labelBeingManaged = null }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showDeleteMultipleLabelsDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteMultipleLabelsDialog = false },
-            title = { Text("Delete Labels") },
-            text = { Text("${selectedLabels.size} label(s) will be removed from all notes. This can't be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteMultipleLabels(selectedLabels)
-                    showDeleteMultipleLabelsDialog = false
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteMultipleLabelsDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Notes") },
-            text = { Text("Are you sure you want to delete ${selectedNotes.size} notes?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    val idsToDelete = selectedNotes
-                    viewModel.deleteMultiple(idsToDelete)
-                    showDeleteDialog = false
-                    selectionMode = false
-                    selectedNotes = emptySet()
-                    coroutineScope.launch {
-                        val result = snackbarHostState.showSnackbar(
-                            message = "${idsToDelete.size} note${if (idsToDelete.size > 1) "s" else ""} moved to Trash",
-                            actionLabel = "Undo",
-                            duration = SnackbarDuration.Short
-                        )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            viewModel.undoDelete()
-                        } else {
-                            viewModel.clearRecentlyDeleted()
-                        }
-                    }
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } }
-        )
-    }
-
-    if (latestRelease != null) {
-        val scrollWall = remember {
-            object : NestedScrollConnection {
-                override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
-                override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
-            }
-        }
-        val updateListState = rememberLazyListState()
-
-        ModalBottomSheet(
-            onDismissRequest = { viewModel.dismissUpdateNotification() },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.75f)
-                    .padding(horizontal = 24.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.NewReleases, contentDescription = "Update", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("New Update Available!", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Version ${latestRelease!!.tag_name} is ready to download.", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Box(modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.4f), RoundedCornerShape(12.dp))
-                    .nestedScroll(scrollWall)
-                ) {
-                    MarkdownText(
-                        text = latestRelease!!.body ?: "Performance improvements and new features.",
-                        listState = updateListState,
-                        highlightsInfo = null,
-                        onSavedHighlightClick = { _, _, _, _, _ -> },
-                        onResolveSelection = { null },
-                        highlightQuery = "",
-                        fontFamily = FontFamily.SansSerif,
-                        modifier = Modifier.fillMaxSize().padding(16.dp)
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = { val apkUrl = latestRelease!!.assets?.firstOrNull()?.browser_download_url ?: latestRelease!!.html_url; context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("Download Update (APK)") }
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("View on GitHub") }
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
-@Composable
-fun DismissibleNoteCard(
-    note: NoteEntity,
-    modifier: Modifier = Modifier,
-    isSelected: Boolean,
-    selectedLabels: Set<String>,
-    selectionMode: Boolean,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedVisibilityScope: AnimatedVisibilityScope,
-    viewModel: HistoryViewModel,
-    parentScope: CoroutineScope, 
-    snackbarHostState: SnackbarHostState,
-    onSelect: () -> Unit,
-    onLongSelect: () -> Unit
-) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart || dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                viewModel.deleteMultiple(setOf(note.id))
-                parentScope.launch {
-                    val result = snackbarHostState.showSnackbar(
-                        message = "Note moved to Trash",
-                        actionLabel = "Undo",
-                        duration = SnackbarDuration.Short
-                    )
-                    if (result == SnackbarResult.ActionPerformed) {
-                        viewModel.undoDelete()
-                    } else {
-                        viewModel.clearRecentlyDeleted()
-                    }
-                }
-                false
-            } else {
-                false
-            }
-        }
-    )
-
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = !selectionMode,
-        enableDismissFromEndToStart = !selectionMode,
-        backgroundContent = {
-            val color by animateColorAsState(
-                targetValue = if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
-                label = "deleteColor"
-            )
-            val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(color, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 24.dp),
-                contentAlignment = alignment
-            ) {
-                if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
-                }
-            }
-        },
-        modifier = modifier
-    ) {
-        with(sharedTransitionScope) {
-            NoteCard(
-                note = note, 
-                isSelected = isSelected,
-                selectedLabels = selectedLabels,
-                modifier = Modifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState("note-${note.id}"),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds(),
-                    boundsTransform = { _, _ -> tween(300) }
-                ),
-                onLongClick = onLongSelect,
-                onClick = onSelect,
-                onLabelClick = { label -> viewModel.toggleLabelFilter(label) }
-            )
-        }
-    }
-}
-
-@Composable
-fun MorphingSearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    isFocused: Boolean,
-    onFocusChange: (Boolean) -> Unit,
-    onClearFocus: () -> Unit,
-    onMenuClick: () -> Unit,
-    isGridView: Boolean,
-    onToggleViewClick: () -> Unit,
-    modifier: Modifier = Modifier 
-) {
-    val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-    val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
     
-    val cornerRadius by animateDpAsState(targetValue = if (isFocused) 0.dp else 50.dp, animationSpec = spring(), label = "corner")
-    val topMargin by animateDpAsState(targetValue = if (isFocused) 0.dp else safeTopMargin + 8.dp, animationSpec = spring(), label = "tMargin")
-    val innerTopPadding by animateDpAsState(targetValue = if (isFocused) safeTopMargin + 16.dp else 12.dp, animationSpec = spring(), label = "innerTopPad")
-    val outerHorizontalPadding by animateDpAsState(targetValue = if (isFocused) 0.dp else 8.dp, animationSpec = spring(), label = "outerHPad")
+    // State Tracker untuk "Open With" dari WA
+    val incomingUri by mainActivity.incomingIntentUri.collectAsState()
+    var isImportingFromExternal by remember { mutableStateOf(false) }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = topMargin, bottom = 8.dp)
-            .padding(horizontal = outerHorizontalPadding)
-    ) {
-        AnimatedVisibility(
-            visible = !isFocused, 
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
-            exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
-        ) {
-            IconButton(onClick = onMenuClick) { 
-                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.onSurfaceVariant) 
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(cornerRadius))
-                .background(MaterialTheme.colorScheme.surface)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .padding(start = 16.dp, end = 16.dp, top = innerTopPadding, bottom = 12.dp)
-                    .defaultMinSize(minHeight = 48.dp) 
-            ) {
-                Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.width(12.dp))
-                Box(modifier = Modifier.weight(1f)) {
-                    if (query.isEmpty()) { Text("Search notes...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) }
-                    BasicTextField(
-                        value = query, onValueChange = onQueryChange,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), singleLine = true,
-                        modifier = Modifier.fillMaxWidth().onFocusChanged { onFocusChange(it.isFocused) }
-                    )
-                }
-                if (isFocused || query.isNotEmpty()) {
-                    Icon(
-                        imageVector = Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { onQueryChange(""); onClearFocus() }
-                    )
-                }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = !isFocused, 
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
-            exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
-        ) {
-            IconButton(onClick = onToggleViewClick) { 
-                Icon(
-                    imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView, 
-                    contentDescription = "Toggle View Mode", 
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                ) 
-            }
-        }
+    if (!isDataLoaded) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer))
+        return
     }
-}
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun NoteCard(
-    note: NoteEntity,
-    isSelected: Boolean,
-    selectedLabels: Set<String>,
-    modifier: Modifier = Modifier,
-    onLongClick: () -> Unit,
-    onClick: () -> Unit,
-    onLabelClick: (String) -> Unit
-) {
-    val formatter = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
-    val rawDisplayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else null
+    val startDestination = if (userName.isBlank()) "onboarding" else "record"
+    val snackbarHostState = remember { SnackbarHostState() }
+    val isRecordingGlobal by appContainer.audioRecorderManager.isRecording.collectAsState()
 
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-        ),
-        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(max = 320.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            if (!note.label.isNullOrBlank()) {
-                val labels = note.label.split("|").map { it.trim() }.filter { it.isNotBlank() }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    labels.forEach { label ->
-                        val isLabelActive = label in selectedLabels
-                        Box(
-                            modifier = Modifier
-                                .background(if (isLabelActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f), RoundedCornerShape(50))
-                                .clickable { onLabelClick(label) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Label, null, tint = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(label, style = MaterialTheme.typography.labelSmall, color = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (note.title.isNotBlank()) {
-                Text(note.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(modifier = Modifier.height(6.dp))
-            }
-
-            if (rawDisplayText != null) {
-                CardMarkdownPreview(
-                    text = rawDisplayText,
-                    maxLines = 7,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
+    // Eksekutor "Open With"
+    LaunchedEffect(incomingUri) {
+        incomingUri?.let { uri ->
+            isImportingFromExternal = true
+            val newId = ImportExportHelper.importFile(context, uri, appContainer.noteRepository)
+            mainActivity.incomingIntentUri.value = null // Reset biar ga loop
+            isImportingFromExternal = false
+            
+            if (newId != null) {
+                navController.navigate("result/$newId")
             } else {
-                Text(
-                    text = "⏳ Waiting for AI transcription...",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    modifier = Modifier.weight(1f, fill = false)
-                )
+                snackbarHostState.showSnackbar("Failed to open or import note.")
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(formatter.format(Date(note.timestamp)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
         }
     }
-}
 
-@Composable
-fun CardMarkdownPreview(
-    text: String,
-    maxLines: Int = 7,
-    modifier: Modifier = Modifier
-) {
-    val onSurface = MaterialTheme.colorScheme.onSurface
-
-    val cleaned = remember(text) {
-        var t = text
-        t = t.replace(Regex("<!--BINOT_META:.*?-->"), "")
-        t = t.replace(Regex("```mermaid[\\s\\S]*?```", RegexOption.MULTILINE), "")
-        t = t.replace(Regex("\\$\\$[\\s\\S]*?\\$\\$", RegexOption.MULTILINE), "")
-        t = t.replace(Regex("""\$[^$\n]+?\$"""), "")
-        t = t.replace(Regex("^> ?", RegexOption.MULTILINE), "")
-        t.trim()
-    }
-
-    val previewLines = remember(cleaned) {
-        cleaned.lines()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .take(maxLines)
-    }
-
-    val annotated = buildAnnotatedString {
-        previewLines.forEachIndexed { i, line ->
-            when {
-                line.startsWith("# ") -> {
-                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.85f))) {
-                        appendInlineMarkdown(line.removePrefix("# "))
-                    }
-                }
-                line.startsWith("## ") -> {
-                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.75f))) {
-                        appendInlineMarkdown(line.removePrefix("## "))
-                    }
-                }
-                line.startsWith("### ") -> {
-                    withStyle(SpanStyle(fontSize = 11.sp, color = onSurface.copy(alpha = 0.65f))) {
-                        appendInlineMarkdown(line.removePrefix("### "))
-                    }
-                }
-                line.startsWith("- ") || line.startsWith("* ") -> {
-                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
-                        append("• ")
-                        appendInlineMarkdown(line.drop(2))
-                    }
-                }
-                line.matches(Regex("^\\d+\\. .*")) -> {
-                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
-                        appendInlineMarkdown(line.replace(Regex("^\\d+\\. "), ""))
-                    }
-                }
-                else -> {
-                    withStyle(SpanStyle(color = onSurface.copy(alpha = 0.7f), fontSize = 11.sp)) {
-                        appendInlineMarkdown(line)
-                    }
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        bottomBar = {
+            if (currentRoute in listOf("record", "history", "settings")) {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = currentRoute == "record",
+                        onClick = { navController.navigate("record") {
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }},
+                        icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
+                        label = { Text("Record") }
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == "history",
+                        onClick = { navController.navigate("history") {
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }},
+                        icon = { Icon(Icons.Default.History, contentDescription = "History") },
+                        label = { Text("History") }
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == "settings",
+                        onClick = { navController.navigate("settings") {
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }},
+                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                        label = { Text("Settings") }
+                    )
                 }
             }
-            if (i < previewLines.lastIndex) append("\n")
+        }
+    ) { innerPadding ->
+        SharedTransitionLayout {
+            NavHost(
+                navController = navController, 
+                startDestination = startDestination,
+                modifier = Modifier.padding(innerPadding),
+                enterTransition = {
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeIn(tween(0)) else fadeIn(tween(300))
+                },
+                exitTransition = {
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeOut(tween(0)) else fadeOut(tween(300))
+                },
+                popEnterTransition = {
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeIn(tween(0)) else fadeIn(tween(300))
+                },
+                popExitTransition = {
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeOut(tween(0)) else fadeOut(tween(300))
+                }
+            ) {
+                composable("onboarding") {
+                    OnboardingScreen(
+                        onComplete = { name, provider, key, task, format ->
+                            settingsViewModel.saveUserName(name)
+                            settingsViewModel.saveAiProvider(provider)
+                            if (provider == 0) settingsViewModel.saveApiKey(key) else settingsViewModel.saveGroqApiKey(key)
+                            settingsViewModel.saveAiTask(task)
+                            settingsViewModel.saveAiFormat(format)
+                            navController.navigate("record") { popUpTo("onboarding") { inclusive = true } }
+                        }
+                    )
+                }
+                composable("record") {
+                    val apiKey by settingsViewModel.apiKey.collectAsState()
+                    val recordMode by settingsViewModel.recordMode.collectAsState()
+                    val aiProvider by settingsViewModel.aiProvider.collectAsState()
+
+                    val recordViewModel: RecordViewModel = viewModel(
+                        factory = RecordViewModel.provideFactory(appContainer.audioRecorderManager, appContainer.noteRepository, apiKey)
+                    )
+                    RecordScreen(
+                        viewModel = recordViewModel,
+                        userName = userName,
+                        recordMode = recordMode,
+                        aiProvider = aiProvider,
+                        snackbarHostState = snackbarHostState,
+                        animatedVisibilityScope = this@composable,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        onNoteClick = { id -> navController.navigate("result/$id") }
+                    )
+                }
+                composable("history") {
+                    val historyViewModel: HistoryViewModel = viewModel(
+                        factory = HistoryViewModel.provideFactory(appContainer.noteRepository)
+                    )
+                    HistoryScreen(
+                        viewModel = historyViewModel,
+                        animatedVisibilityScope = this@composable,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        onNoteClick = { id -> navController.navigate("result/$id") },
+                        onTrashClick = { navController.navigate("trash") },
+                        onImportFile = { uri -> ImportExportHelper.importFile(context, uri, appContainer.noteRepository) }
+                    )
+                }
+                composable("trash") {
+                    val historyViewModel: HistoryViewModel = viewModel(
+                        factory = HistoryViewModel.provideFactory(appContainer.noteRepository)
+                    )
+                    TrashScreen(
+                        viewModel = historyViewModel,
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable("settings") {
+                    SettingsScreen(
+                        viewModel = settingsViewModel,
+                        animatedVisibilityScope = this@composable,
+                        isRecording = isRecordingGlobal,
+                        onDiscardRecording = { 
+                            val path = appContainer.audioRecorderManager.stopRecording()
+                            if (path != null) try { java.io.File(path).delete() } catch (e: Exception) {}
+                        }
+                    )
+                }
+                composable("result/{noteId}") { backStackEntry ->
+                    val noteId = backStackEntry.arguments?.getString("noteId")?.toIntOrNull() ?: return@composable
+                    
+                    val resultViewModel: ResultViewModel = viewModel(
+                        factory = ResultViewModel.provideFactory(
+                            noteId = noteId, 
+                            repository = appContainer.noteRepository, 
+                            settingsRepository = appContainer.settingsRepository
+                        )
+                    )
+                    ResultScreen(
+                        viewModel = resultViewModel,
+                        noteId = noteId,
+                        animatedVisibilityScope = this@composable,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+            }
+            
+            // Screen Pelindung Loading saat nge-import dari WhatsApp
+            if (isImportingFromExternal) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
+                        .clickable(enabled = false) {}, // Blok klik
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "Unpacking Binot...", 
+                            modifier = Modifier.padding(top = 16.dp),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
+            }
         }
     }
-
-    Text(
-        text = annotated,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-        lineHeight = 17.sp,
-        modifier = modifier
-    )
-}
-
-private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdown(text: String) {
-    val pattern = Regex("\\*\\*(.*?)\\*\\*|\\*(.*?)\\*|_(.*?)_")
-    var cursor = 0
-    for (match in pattern.findAll(text)) {
-        if (match.range.first > cursor) append(text.substring(cursor, match.range.first))
-        when {
-            match.groups[1] != null -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(match.groups[1]!!.value) }
-            match.groups[2] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(match.groups[2]!!.value) }
-            match.groups[3] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(match.groups[3]!!.value) }
-        }
-        cursor = match.range.last + 1
-    }
-    if (cursor < text.length) append(text.substring(cursor))
 }
