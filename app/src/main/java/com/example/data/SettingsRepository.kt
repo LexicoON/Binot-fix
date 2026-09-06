@@ -16,9 +16,9 @@ class SettingsRepository(private val context: Context) {
         val API_KEY = stringPreferencesKey("api_key")
         val GROQ_API_KEY = stringPreferencesKey("groq_api_key")
         val THEME_MODE_KEY = intPreferencesKey("theme_mode")
-        val RECORD_MODE_KEY = intPreferencesKey("record_mode") 
-        val AI_PROVIDER_KEY = intPreferencesKey("ai_provider") // 0 = Gemini, 1 = Groq
-        
+        val RECORD_MODE_KEY = intPreferencesKey("record_mode")
+        val AI_PROVIDER_KEY = intPreferencesKey("ai_provider") // 0 = Gemini, 1 = Groq, 2 = Mix (Beta)
+
         // --- NEW GLOBAL AI PREFERENCES ---
         val AI_LANGUAGE_KEY = stringPreferencesKey("ai_language")
         val AI_TASK_KEY = intPreferencesKey("ai_task") // 0: Tidy Up, 1: Summarize, 2: Analyze
@@ -29,7 +29,7 @@ class SettingsRepository(private val context: Context) {
     val geminiApiKeyFlow: Flow<String> = context.dataStore.data.map { it[API_KEY] ?: "" }
     val groqApiKeyFlow: Flow<String> = context.dataStore.data.map { it[GROQ_API_KEY] ?: "" }
     val themeModeFlow: Flow<Int> = context.dataStore.data.map { it[THEME_MODE_KEY] ?: 0 }
-    val recordModeFlow: Flow<Int> = context.dataStore.data.map { it[RECORD_MODE_KEY] ?: 0 } 
+    val recordModeFlow: Flow<Int> = context.dataStore.data.map { it[RECORD_MODE_KEY] ?: 0 }
     val aiProviderFlow: Flow<Int> = context.dataStore.data.map { it[AI_PROVIDER_KEY] ?: 0 }
 
     // Default: English, Tidy Up (0), Paragraphs (0)
