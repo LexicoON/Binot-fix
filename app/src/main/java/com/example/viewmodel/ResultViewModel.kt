@@ -330,7 +330,7 @@ class ResultViewModel(
                 
                 val resultText = if (provider == 1) { // Groq
                     val request = GroqChatRequest(
-                        model = "openai/gpt-oss-120b",
+                        model = "llama-3.3-70b-versatile",
                         messages = listOf(
                             GroqMessage(role = "system", content = systemPrompt),
                             GroqMessage(role = "user", content = userPrompt)
@@ -520,7 +520,18 @@ class ResultViewModel(
                         checkAndTriggerAutoProcess(updatedNote)
                         
                         launch(Dispatchers.IO) {
-                            try { generateTitleFromTranscript(updatedNote, transcript, provider, apiKey) } catch (e: Exception) {}
+                            try {
+                                generateTitleFromTranscript(updatedNote, transcript, provider, apiKey)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                // Fallback: si falla la generación, usar un título por defecto
+                                if (updatedNote.title.isBlank()) {
+                                    val fallbackTitle = transcript.take(60).trim().lineSequence().firstOrNull { it.isNotBlank() } ?: "Untitled Note"
+                                    val finalNote = updatedNote.copy(title = fallbackTitle)
+                                    _note.value = finalNote
+                                    noteRepository.update(finalNote)
+                                }
+                            }
                         }
                     } else if (transcript?.contains("[No speech detected]") == true) {
                         _error.value = "No clear speech detected in the audio recording."
@@ -551,7 +562,7 @@ class ResultViewModel(
 
         val aiTitle = if (provider == 1) { // Groq
             val request = GroqChatRequest(
-                model = "openai/gpt-oss-20b",
+                model = "llama-3.1-8b-instant",
                 messages = listOf(
                     GroqMessage(role = "system", content = systemPrompt),
                     GroqMessage(role = "user", content = userPrompt)
@@ -593,14 +604,22 @@ class ResultViewModel(
 
                 val taskInstruction = when (task) {
                     0 -> "Task: STRICT PROOFREADING (TIDY UP). Fix typos, grammar, and remove filler words. Preserve the exact original meaning and tone. DO NOT add outside facts. If it's a multi-sentence text, divide it logically into sections."
-                    1 -> "Task: SUMMARIZE. Extract the core information and make a concise summary. Ignore filler words."
-                    2 -> "Task: ANALYZE. Extract the main points, underlying sentiments, and any action items."
+                    1 -> "Task: SUMMARIZE. Extract the core information and make a concise summary. Ignore filler words. Keep it under 30% of the original length."
+                    2 -> "Task: ANALYZE. Extract the main points, underlying sentiments, and any action items or decisions."
                     else -> "Task: STRICT PROOFREADING (TIDY UP)."
                 }
 
                 val formatInstruction = when (format) {
                     0 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Do not output a flat wall of text. Use PARAGRAPHS for the details under each heading. DO NOT use bullet points. Use **bold** for key concepts, *italic* for emphasis, and > for quotes. DO NOT wrap text in quotes."
                     1 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Use BULLET POINTS ('-') for the details under each heading. NEVER use asterisks ('*'). Use **bold** for key concepts."
+                    else -> ""
+                }
+
+                // Hint opcional que conecta task con format para evitar ambigüedad
+                val taskFormatHint = when {
+                    task == 0 && format == 1 -> "Hint: When tidying up into bullets, each bullet should be one complete thought. Don't split a single sentence across multiple bullets."
+                    task == 1 && format == 0 -> "Hint: When summarizing into paragraphs, write 2-4 short paragraphs maximum. Each paragraph should cover one main theme."
+                    task == 2 && format == 1 -> "Hint: When analyzing into bullets, group related points together. Start with 'Main Points', then 'Sentiments', then 'Action Items' if they exist."
                     else -> ""
                 }
 
@@ -611,7 +630,8 @@ class ResultViewModel(
                     
                     $taskInstruction
                     $formatInstruction
-                    
+                    $taskFormatHint
+
                     CRITICAL STRICT RULES YOU MUST OBEY:
                     1. ZERO YAPPING: Output EXACTLY the final processed text. NO greetings, NO introductions, NO explanations of what you did.
                     2. NO GLOBAL WRAPPING: DO NOT wrap your entire output in quotes or a global markdown code block.
@@ -646,7 +666,7 @@ class ResultViewModel(
                 
                 val processedText = if (provider == 1) { // Groq
                     val request = GroqChatRequest(
-                        model = "openai/gpt-oss-120b",
+                        model = "llama-3.3-70b-versatile",
                         messages = listOf(
                             GroqMessage(role = "system", content = systemPrompt),
                             GroqMessage(role = "user", content = userContent)
