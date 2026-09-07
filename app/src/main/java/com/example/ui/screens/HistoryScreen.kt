@@ -512,7 +512,7 @@ fun HistoryScreen(
                 if (!selectionMode) {
                     with(sharedTransitionScope) {
                         ExtendedFloatingActionButton(
-                            onClick = { importLauncher.launch(arrayOf("audio/*", "application/zip", "application/octet-stream")) },
+                            onClick = { importLauncher.launch(arrayOf("*/*")) },
                             expanded = isFabExpanded,
                             icon = { Icon(Icons.Default.Audiotrack, "Import File") },
                             text = { Text("Import File") },
