@@ -293,7 +293,11 @@ class ResultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val provider = settingsRepository.aiProviderFlow.first()
-                val apiKey = if (provider == 1) settingsRepository.groqApiKeyFlow.first() else settingsRepository.geminiApiKeyFlow.first()
+                val geminiKey = settingsRepository.geminiApiKeyFlow.first()
+                val groqKey = settingsRepository.groqApiKeyFlow.first()
+                // MIX (provider == 2): explanations use Groq (fast for short tasks)
+                val effectiveProviderForExplain: Int = if (provider == 2) 1 else provider
+                val apiKey = if (effectiveProviderForExplain == 1) groqKey else geminiKey
                 val targetLanguage = settingsRepository.aiLanguageFlow.first()
                 
                 if (apiKey.isBlank()) {
@@ -328,9 +332,6 @@ class ResultViewModel(
                 }
                 
                 val userPrompt = "Term to explain: \"$selectedText\""
-
-                // MIX (provider == 2): explanations use Groq (fast for short tasks)
-                val effectiveProviderForExplain: Int = if (provider == 2) 1 else provider
 
                 val resultText = if (effectiveProviderForExplain == 1) { // Groq
                     val request = GroqChatRequest(
@@ -435,9 +436,10 @@ class ResultViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             val provider = settingsRepository.aiProviderFlow.first()
-            val apiKey = if (provider == 1) settingsRepository.groqApiKeyFlow.first() else settingsRepository.geminiApiKeyFlow.first()
+            val geminiKey = settingsRepository.geminiApiKeyFlow.first()
+            val groqKey = settingsRepository.groqApiKeyFlow.first()
 
-            if (apiKey.isBlank()) { 
+            if ((provider == 1 && groqKey.isBlank()) || (provider == 0 && geminiKey.isBlank()) || (provider == 2 && geminiKey.isBlank() && groqKey.isBlank())) {
                 launch(Dispatchers.Main) {
                     _error.value = "API Key is required to transcribe accurate audio. Please set it in Settings."
                     _isLoading.value = false
@@ -457,6 +459,7 @@ class ResultViewModel(
                 val effectiveProviderForTranscription: Int = if (provider == 2) {
                     if (file.length() > 25 * 1024 * 1024) 0 else 1
                 } else provider
+                val apiKey = if (effectiveProviderForTranscription == 1) groqKey else geminiKey
 
                 if (effectiveProviderForTranscription == 1) { // GROQ PROCESSING
                     if (file.length() > 25 * 1024 * 1024) {
@@ -531,7 +534,7 @@ class ResultViewModel(
                         
                         launch(Dispatchers.IO) {
                             try {
-                                generateTitleFromTranscript(updatedNote, transcript, provider, apiKey)
+                                generateTitleFromTranscript(updatedNote, transcript, provider, geminiKey, groqKey)
                             } catch (e: Exception) {
                                 e.printStackTrace()
                                 // Fallback: si falla la generación, usar un título por defecto
@@ -563,7 +566,7 @@ class ResultViewModel(
         }
     }
 
-    private suspend fun generateTitleFromTranscript(note: NoteEntity, transcript: String, provider: Int, apiKey: String) {
+    private suspend fun generateTitleFromTranscript(note: NoteEntity, transcript: String, provider: Int, geminiKey: String, groqKey: String) {
         val systemPrompt = """
             Buat judul singkat 3-5 kata dalam bahasa yang sama dengan teks yang diberikan pengguna.
             RULES: Hanya output judulnya saja. Tanpa tanda kutip, tanpa titik di akhir, dan tanpa penjelasan apapun.
@@ -572,6 +575,7 @@ class ResultViewModel(
 
         // MIX (provider == 2): titles use Groq (fast, lightweight)
         val effectiveProviderForTitle: Int = if (provider == 2) 1 else provider
+        val apiKey = if (effectiveProviderForTitle == 1) groqKey else geminiKey
 
         val aiTitle = if (effectiveProviderForTitle == 1) { // Groq
             val request = GroqChatRequest(
@@ -605,7 +609,9 @@ class ResultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val provider = settingsRepository.aiProviderFlow.first()
-                val apiKey = if (provider == 1) settingsRepository.groqApiKeyFlow.first() else settingsRepository.geminiApiKeyFlow.first()
+                // MIX (provider == 2): text processing always uses Gemini (better for long context)
+                val effectiveProviderForProcessing: Int = if (provider == 2) 0 else provider
+                val apiKey = if (effectiveProviderForProcessing == 1) settingsRepository.groqApiKeyFlow.first() else settingsRepository.geminiApiKeyFlow.first()
                 
                 if (apiKey.isBlank()) { 
                     launch(Dispatchers.Main) {
@@ -676,9 +682,6 @@ class ResultViewModel(
                 }
                 
                 val userContent = "Process this text strictly into $language:\n\n${currentNote.rawText}"
-                
-                // MIX (provider == 2): text processing always uses Gemini (better for long context)
-                val effectiveProviderForProcessing: Int = if (provider == 2) 0 else provider
 
                 val processedText = if (effectiveProviderForProcessing == 1) { // Groq
                     val request = GroqChatRequest(
