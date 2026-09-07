@@ -24,7 +24,8 @@ import kotlinx.coroutines.withContext
 class RecordViewModel(
     private val audioRecorderManager: AudioRecorderManager,
     private val repository: NoteRepository,
-    private val apiKey: String
+    private val geminiApiKey: String,
+    private val groqApiKey: String
 ) : ViewModel() {
 
     val isRecording: StateFlow<Boolean> = audioRecorderManager.isRecording
@@ -153,6 +154,10 @@ class RecordViewModel(
 
         val id = withContext(Dispatchers.IO) { repository.insert(note).toInt() }
 
+        // MIX (provider == 2): titles use Groq (fast, lightweight), same as ResultViewModel
+        val effectiveProvider = if (provider == 2) 1 else provider
+        val apiKey = if (effectiveProvider == 1) groqApiKey else geminiApiKey
+
         if (apiKey.isNotBlank() && recordMode == 0) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
@@ -164,8 +169,8 @@ class RecordViewModel(
                         - Gunakan bahasa yang sama dengan teks input.
                         Teks: ${text.take(500)}
                     """.trimIndent()
-                    val aiTitle = if (provider == 1) {
-                        // Groq path (provider == 1)
+                    val aiTitle = if (effectiveProvider == 1) {
+                        // Groq path
                         val request = GroqChatRequest(
                             model = "openai/gpt-oss-20b",
                             messages = listOf(
@@ -176,7 +181,7 @@ class RecordViewModel(
                         RetrofitClient.groqService.generateContent("Bearer $apiKey", request)
                             .choices?.firstOrNull()?.message?.content?.trim()
                     } else {
-                        // Gemini path (provider == 0)
+                        // Gemini path
                         val request = GenerateContentRequest(
                             contents = listOf(Content(parts = listOf(Part(text = prompt))))
                         )
@@ -212,12 +217,13 @@ class RecordViewModel(
         fun provideFactory(
             audioRecorderManager: AudioRecorderManager,
             repository: NoteRepository,
-            apiKey: String
+            geminiApiKey: String,
+            groqApiKey: String
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return RecordViewModel(audioRecorderManager, repository, apiKey) as T
+                    return RecordViewModel(audioRecorderManager, repository, geminiApiKey, groqApiKey) as T
                 }
             }
     }
