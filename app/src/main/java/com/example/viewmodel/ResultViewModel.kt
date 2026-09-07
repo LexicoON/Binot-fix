@@ -109,7 +109,7 @@ class ResultViewModel(
             val lang = settingsRepository.aiLanguageFlow.first()
             val task = settingsRepository.aiTaskFlow.first()
             val format = settingsRepository.aiFormatFlow.first()
-            val currentMeta = "<!--BINOT_META:${lang}_${task}_${format}-->"
+            val currentMeta = "<!--BINOT_META:${'$'}{lang}_${'$'}{task}_${'$'}{format}-->"
             
             // LOGIKA IMUNITAS (KEBAL AI):
             // Catatan hanya akan di-proses ulang jika summary BENAR-BENAR KOSONG.
@@ -281,7 +281,7 @@ class ResultViewModel(
                 }
                 launch(Dispatchers.Main) { onResult("Audio exported successfully!") }
             } catch (e: Exception) { 
-                launch(Dispatchers.Main) { onResult("Failed to export audio: ${e.message}") } 
+                launch(Dispatchers.Main) { onResult("Failed to export audio: ${'$'}{e.message}") } 
             }
         }
     }
@@ -311,27 +311,27 @@ class ResultViewModel(
                 var systemPrompt = """
                     You are an expert encyclopedia. Explain the given term/sentence purely, briefly, and with high relevance. 
                     STRICT RULES YOU MUST OBEY:
-                    1. Output language MUST follow: $targetLanguage.
+                    1. Output language MUST follow: ${'$'}targetLanguage.
                     2. NO conversational filler, pleasantries, or introductions.
                     3. Format nicely using Markdown. ABSOLUTELY NO BACKTICKS (`), EXCEPT if you need to generate a ```mermaid diagram.
                     4. CRITICAL: DO NOT generate tables under any circumstances.
-                    5. STRICT MATH FORMATTING: Convert all mathematical formulas into valid LaTeX syntax using `${'$'}${'$'}` or `${'$'}`. NEVER translate math/chemistry formulas into spoken words.
+                    5. STRICT MATH FORMATTING: Convert all mathematical formulas into valid LaTeX syntax using `${'$'}${'$'}` or `${'$'}${'$'}` or `${'$'}`. NEVER translate math/chemistry formulas into spoken word[...]
                     6. NO MATH MARKDOWN & NO QUOTES: NEVER use Markdown asterisks (`**`, `*`) or underscores (`_`) INSIDE or immediately touching LaTeX blocks. 
                        - FATAL WRONG: `**${'$'}x=1${'$'}**` or `${'$'}**x=1**${'$'}`
                        - CORRECT: `${'$'}x=1${'$'}`
-                       If you desperately need to bold a mathematical variable, YOU MUST use pure LaTeX: `${'$'}\mathbf{x}=1${'$'}`. NEVER wrap LaTeX blocks in quotes.
+                       If you desperately need to bold a mathematical variable, YOU MUST use pure LaTeX: `${'$'}\mathbf{x}=1${'$'}$. NEVER wrap LaTeX blocks in quotes.
                 """.trimIndent()
                 
                 if (provider == 1) {
                     systemPrompt += """
                         
                         [GROQ/LLAMA OVERRIDES]
-                        7. STRICT MATH ISOLATION: Keep math symbols inside `${'$'}${'$'}` strictly in Latin/Greek/Numbers. DO NOT put Arabic, Chinese, Korean, or any non-Latin translations INSIDE the math block. Put translated text OUTSIDE.
+                        7. STRICT MATH ISOLATION: Keep math symbols inside `${'$'}${'$'}` strictly in Latin/Greek/Numbers. DO NOT put Arabic, Chinese, Korean, or any non-Latin translations INSIDE[...]
                         8. MERMAID ALLOWED: You are ALLOWED and ENCOURAGED to use ` ```mermaid ` blocks for diagrams. Do not avoid backticks for diagrams.
                     """.trimIndent()
                 }
                 
-                val userPrompt = "Term to explain: \"$selectedText\""
+                val userPrompt = "Term to explain: \"${'$'}{selectedText}\""
 
                 val resultText = if (effectiveProviderForExplain == 1) { // Groq
                     val request = GroqChatRequest(
@@ -341,7 +341,7 @@ class ResultViewModel(
                             GroqMessage(role = "user", content = userPrompt)
                         )
                     )
-                    RetrofitClient.groqService.generateContent("Bearer $apiKey", request).choices?.firstOrNull()?.message?.content
+                    RetrofitClient.groqService.generateContent("Bearer ${'$'}apiKey", request).choices?.firstOrNull()?.message?.content
                 } else { // Gemini
                     val request = GenerateContentRequest(
                         systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
@@ -477,7 +477,7 @@ class ResultViewModel(
                     val model = "whisper-large-v3-turbo".toRequestBody("text/plain".toMediaTypeOrNull())
                     val format = "json".toRequestBody("text/plain".toMediaTypeOrNull())
                     
-                    val response = RetrofitClient.groqService.transcribeAudio("Bearer $apiKey", body, model, format)
+                    val response = RetrofitClient.groqService.transcribeAudio("Bearer ${'$'}apiKey", body, model, format)
                     transcript = response.text?.trim()
 
                 } else { // GEMINI PROCESSING
@@ -502,7 +502,7 @@ class ResultViewModel(
                         2. VERBATIM TRANSCRIBE: Transcribe exactly what is spoken word-by-word, including informal words, repeated words, and natural speech flow.
                         3. KEEP PUNCTUATION & CAPITALIZATION: You MUST add accurate punctuation (periods, commas, question marks) and use proper capitalization to make it readable.
                         4. NO GRAMMAR CORRECTION: Absolutely DO NOT fix the speaker's grammatical errors or restructure their sentences.
-                        5. NO MARKDOWN & NO MATH FORMATTING: DO NOT add Markdown styling. DO NOT convert spoken math, numbers, or symbols into LaTeX format. Write them as plain text (e.g., write "two squared" or "dua pangkat tiga", do not use ², ^, ${'$'}, or ${'$'}${'$'}).
+                        5. NO MARKDOWN & NO MATH FORMATTING: DO NOT add Markdown styling. DO NOT convert spoken math, numbers, or symbols into LaTeX format. Write them as plain text (e.g., write [...]
                         6. Automatically detect and transcribe in the spoken language.
                     """.trimIndent()
                     
@@ -560,7 +560,7 @@ class ResultViewModel(
                 } 
             } finally {
                 if (provider == 0 && remoteFileName != null) {
-                    try { RetrofitClient.service.deleteFile(remoteFileName, apiKey) } catch (e: Exception) { e.printStackTrace() }
+                    try { RetrofitClient.service.deleteFile(remoteFileName, geminiKey) } catch (e: Exception) { e.printStackTrace() }
                 }
             }
         }
@@ -571,7 +571,7 @@ class ResultViewModel(
             Buat judul singkat 3-5 kata dalam bahasa yang sama dengan teks yang diberikan pengguna.
             RULES: Hanya output judulnya saja. Tanpa tanda kutip, tanpa titik di akhir, dan tanpa penjelasan apapun.
         """.trimIndent()
-        val userPrompt = "Teks:\n${transcript.take(500)}"
+        val userPrompt = "Teks:\n${'$'}{transcript.take(500)}"
 
         // MIX (provider == 2): titles use Groq (fast, lightweight)
         val effectiveProviderForTitle: Int = if (provider == 2) 1 else provider
@@ -585,7 +585,7 @@ class ResultViewModel(
                     GroqMessage(role = "user", content = userPrompt)
                 )
             )
-            RetrofitClient.groqService.generateContent("Bearer $apiKey", request).choices?.firstOrNull()?.message?.content?.trim()
+            RetrofitClient.groqService.generateContent("Bearer ${'$'}apiKey", request).choices?.firstOrNull()?.message?.content?.trim()
         } else { // Gemini
             val request = GenerateContentRequest(
                 systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
@@ -622,15 +622,15 @@ class ResultViewModel(
                 }
 
                 val taskInstruction = when (task) {
-                    0 -> "Task: STRICT PROOFREADING (TIDY UP). Fix typos, grammar, and remove filler words. Preserve the exact original meaning and tone. DO NOT add outside facts. If it's a multi-sentence text, divide it logically into sections."
+                    0 -> "Task: STRICT PROOFREADING (TIDY UP). Fix typos, grammar, and remove filler words. Preserve the exact original meaning and tone. DO NOT add outside facts. If it's a multi[...]
                     1 -> "Task: SUMMARIZE. Extract the core information and make a concise summary. Ignore filler words. Keep it under 30% of the original length."
                     2 -> "Task: ANALYZE. Extract the main points, underlying sentiments, and any action items or decisions."
                     else -> "Task: STRICT PROOFREADING (TIDY UP)."
                 }
 
                 val formatInstruction = when (format) {
-                    0 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Do not output a flat wall of text. Use PARAGRAPHS for the details under each heading. DO NOT use bullet points. Use **bold** for key concepts, *italic* for emphasis, and > for quotes. DO NOT wrap text in quotes."
-                    1 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Use BULLET POINTS ('-') for the details under each heading. NEVER use asterisks ('*'). Use **bold** for key concepts."
+                    0 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Do not output a flat wall of text. Use PARAGRAPHS for the details und[...]
+                    1 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Use BULLET POINTS ('-') for the details under each heading. NEVER use[...]
                     else -> ""
                 }
 
@@ -645,20 +645,20 @@ class ResultViewModel(
                 var systemPrompt = """
                     [SYSTEM: ENGINE MODE ENABLED]
                     You are a strict text processing engine, NOT a conversational chatbot.
-                    TARGET LANGUAGE: $language. You MUST translate the output to $language if the input is different.
+                    TARGET LANGUAGE: ${'$'}{language}. You MUST translate the output to ${'$'}{language} if the input is different.
                     
-                    $taskInstruction
-                    $formatInstruction
-                    $taskFormatHint
+                    ${'$'}{taskInstruction}
+                    ${'$'}{formatInstruction}
+                    ${'$'}{taskFormatHint}
 
                     CRITICAL STRICT RULES YOU MUST OBEY:
                     1. ZERO YAPPING: Output EXACTLY the final processed text. NO greetings, NO introductions, NO explanations of what you did.
                     2. NO GLOBAL WRAPPING: DO NOT wrap your entire output in quotes or a global markdown code block.
-                    3. MANDATORY LATEX & CHEMISTRY: Convert ALL mathematical concepts, formulas, and equations into valid LaTeX syntax. Use `${'$'}${'$'}` for block equations and `${'$'}` for inline math. For CHEMICAL formulas and reactions, you MUST use the `\ce{}` macro inside LaTeX.
-                    4. NO MATH MARKDOWN & NO QUOTES: KaTeX WILL CRASH if you use Markdown inside it. NEVER use asterisks (`**`, `*`) or underscores (`_`) INSIDE or immediately touching LaTeX blocks.
+                    3. MANDATORY LATEX & CHEMISTRY: Convert ALL mathematical concepts, formulas, and equations into valid LaTeX syntax. Use `${'$'}${'$'}` for block equations and `${'$'}${'$'}` for inl[...]
+                    4. NO MATH MARKDOWN & NO QUOTES: KaTeX WILL CRASH if you use Markdown inside it. NEVER use asterisks (`**`, `*`) or underscores (`_`) INSIDE or immediately touching LaTeX bloc[...]
                        - FATAL WRONG: `**${'$'}E=mc^2${'$'}**` or `${'$'}**E=mc^2**${'$'}`
                        - CORRECT: `${'$'}E=mc^2${'$'}`
-                       If you desperately need to bold a mathematical element, YOU MUST use pure LaTeX: `${'$'}\mathbf{E}=mc^2${'$'}`. NEVER wrap equations in single or double quotes.
+                       If you desperately need to bold a mathematical element, YOU MUST use pure LaTeX: `${'$'}\\mathbf{E}=mc^2${'$'}`. NEVER wrap equations in single or double quotes.
                     5. CRITICAL: DO NOT generate tables under any circumstances.
                     6. VISUAL DIAGRAMS (MANDATORY ANALYSIS):
                        - Silently check: Does the text contain a process, schedule, logic, IF/THEN, or sequence?
@@ -677,11 +677,11 @@ class ResultViewModel(
                         [GROQ/LLAMA OVERRIDES]
                         7. MERMAID ALLOWANCE: Rule #2 forbids GLOBAL wrapping, but you MUST use ` ```mermaid ` blocks for diagrams. DO NOT avoid backticks for diagrams!
                         8. MERMAID ENFORCEMENT: If the text explains a system flow, login steps, conditions, or processes, YOU ARE FORCED to output a flowchart. Do not ignore logic.
-                        9. STRICT MATH ISOLATION: Equations inside `${'$'}${'$'}` or `${'$'}` MUST remain in standard universal symbols (Latin/Greek/Numbers). DO NOT translate variables or put Arabic, Chinese, Korean, or any Non-Latin characters INSIDE the math blocks. Put all translated text OUTSIDE the LaTeX blocks.
+                        9. STRICT MATH ISOLATION: Equations inside `${'$'}${'$'}` or `${'$'}${'$'}` MUST remain in standard universal symbols (Latin/Greek/Numbers). DO NOT translate variables or put Ar[...]
                     """.trimIndent()
                 }
                 
-                val userContent = "Process this text strictly into $language:\n\n${currentNote.rawText}"
+                val userContent = "Process this text strictly into ${'$'}{language}:\n\n${'$'}{currentNote.rawText}"
 
                 val processedText = if (effectiveProviderForProcessing == 1) { // Groq
                     val request = GroqChatRequest(
@@ -691,7 +691,7 @@ class ResultViewModel(
                             GroqMessage(role = "user", content = userContent)
                         )
                     )
-                    RetrofitClient.groqService.generateContent("Bearer $apiKey", request).choices?.firstOrNull()?.message?.content
+                    RetrofitClient.groqService.generateContent("Bearer ${'$'}apiKey", request).choices?.firstOrNull()?.message?.content
                 } else { // Gemini
                     val request = GenerateContentRequest(
                         systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
@@ -732,10 +732,10 @@ class ResultViewModel(
                 429 -> "API Rate Limit Exceeded (429). You are making too many requests. Please wait."
                 500 -> "Internal Server Error (500). Provider is having trouble. Please try again later."
                 503 -> "Service Unavailable (503). The AI Server is currently overloaded."
-                else -> "HTTP Error: ${e.code()} - Please check your connection or API Key."
+                else -> "HTTP Error: ${'$'}{e.code()} - Please check your connection or API Key."
             }
         } else {
-            "Processing failed: ${e.message}"
+            "Processing failed: ${'$'}{e.message}"
         }
     }
 
