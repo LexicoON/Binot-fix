@@ -78,12 +78,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Binot v${{ github.ref_name }}
-          body: ${{ github.event.head_commit.message }}
-          # If you want the changelog curated, replace the line above with a file path, e.g.:
-          # body_path: .github/RELEASE_TEMPLATE.md
+          # name/body intentionally omitted: if you already created the release
+          # in the GitHub UI with your own title + changelog, this step will
+          # leave both untouched and just attach the APK below.
           draft: false
           prerelease: false
-          generate_release_notes: true
           files: |
             ${{ steps.locate.outputs.apk_path }}
