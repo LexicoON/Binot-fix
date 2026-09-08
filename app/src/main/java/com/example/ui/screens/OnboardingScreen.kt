@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.example.ui.screens
 
 import android.content.Intent
@@ -411,10 +413,9 @@ fun OnboardingScreen(
                                         verticalArrangement = Arrangement.Center,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        CircularProgressIndicator(
+                                        LoadingIndicator(
                                             modifier = Modifier.size(72.dp),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            strokeWidth = 6.dp
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                         Spacer(modifier = Modifier.height(32.dp))
                                         Text(
