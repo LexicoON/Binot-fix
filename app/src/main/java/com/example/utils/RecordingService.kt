@@ -132,7 +132,7 @@ class RecordingService : Service() {
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle("Recording in background")
             .setContentText("Binot is still recording — ${formatTime(seconds)} elapsed. Tap to return.")
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.mipmap.ic_launcher_monochrome)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(pendingIntent)
