@@ -105,6 +105,12 @@ class SettingsViewModel(
         initialValue = 0
     )
 
+    val backgroundRecordingEnabled: StateFlow<Boolean> = settingsRepository.backgroundRecordingFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+
     private val _updateState = MutableStateFlow(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 
@@ -143,6 +149,10 @@ class SettingsViewModel(
 
     fun saveAiProvider(provider: Int) {
         viewModelScope.launch { settingsRepository.saveAiProvider(provider) }
+    }
+
+    fun saveBackgroundRecording(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.saveBackgroundRecording(enabled) }
     }
 
     fun saveAiLanguage(language: String) {
