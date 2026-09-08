@@ -321,7 +321,7 @@ fun ResultScreen(
                 .sharedBounds(
                     sharedContentState = rememberSharedContentState(key = "note-$noteId"),
                     animatedVisibilityScope = animatedVisibilityScope,
-                    resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds(),
+                    resizeMode = SharedTransitionScope.scaleToBounds,
                     boundsTransform = { _, _ -> tween(300) }
                 )
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
