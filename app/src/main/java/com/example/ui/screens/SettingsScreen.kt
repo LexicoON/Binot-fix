@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.example.ui.screens
 
 import android.content.Intent
@@ -766,7 +768,7 @@ fun SettingsScreen(
                                 if (updateState == UpdateState.Downloading) {
                                     val animatedProgress by animateFloatAsState(targetValue = downloadProgress / 100f, label = "progress")
                                     Spacer(Modifier.height(8.dp))
-                                    LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(MaterialTheme.shapes.small), color = MaterialTheme.colorScheme.primary)
+                                    LinearWavyProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(6.dp), color = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.height(4.dp))
                                     Text("Downloading... $downloadProgress%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 } else if (updateState == UpdateState.Available) {
@@ -780,7 +782,7 @@ fun SettingsScreen(
                             AnimatedContent(targetState = updateState, label = "update_btn") { state ->
                                 when (state) {
                                     UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Text("Check Update") }
-                                    UpdateState.Checking -> Button(onClick = {}, enabled = false) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) }
+                                    UpdateState.Checking -> Button(onClick = {}, enabled = false) { LoadingIndicator(modifier = Modifier.size(20.dp)) }
                                     UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }) { Text("Update App") }
                                     UpdateState.Downloading -> OutlinedButton(onClick = {}) { Text("Downloading") }
                                     UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
