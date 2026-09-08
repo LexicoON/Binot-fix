@@ -231,7 +231,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                     val aiProvider by settingsViewModel.aiProvider.collectAsState()
 
                     val recordViewModel: RecordViewModel = viewModel(
-                        factory = RecordViewModel.provideFactory(appContainer.audioRecorderManager, appContainer.noteRepository, apiKey, groqApiKey, applicationContext, appContainer.settingsRepository)
+                        factory = RecordViewModel.provideFactory(appContainer.audioRecorderManager, appContainer.noteRepository, apiKey, groqApiKey, context, appContainer.settingsRepository)
                     )
                     RecordScreen(
                         viewModel = recordViewModel,
