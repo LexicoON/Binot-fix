@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.example.ui.screens
 
 import android.Manifest
@@ -592,9 +594,8 @@ fun RecordScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isStopPressed && recordMode == 1) {
-                                    CircularProgressIndicator(
+                                    LoadingIndicator(
                                         color = MaterialTheme.colorScheme.onTertiary,
-                                        strokeWidth = 2.dp,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 } else {
