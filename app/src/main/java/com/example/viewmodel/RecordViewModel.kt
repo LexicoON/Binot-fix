@@ -1,5 +1,6 @@
 package com.example.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -11,13 +12,16 @@ import com.example.data.NoteEntity
 import com.example.data.NoteRepository
 import com.example.data.Part
 import com.example.data.RetrofitClient
+import com.example.data.SettingsRepository
 import com.example.utils.AudioRecorderManager
+import com.example.utils.RecordingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -25,7 +29,9 @@ class RecordViewModel(
     private val audioRecorderManager: AudioRecorderManager,
     private val repository: NoteRepository,
     private val geminiApiKey: String,
-    private val groqApiKey: String
+    private val groqApiKey: String,
+    private val appContext: Context,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     val isRecording: StateFlow<Boolean> = audioRecorderManager.isRecording
@@ -72,11 +78,13 @@ class RecordViewModel(
             pendingAudioPath = audioRecorderManager.stopRecording()
             stopTimer()
             _isPaused.value = false
+            RecordingService.stop(appContext)
         } else {
             _isPaused.value = false
             pendingAudioPath = null
             audioRecorderManager.startRecording(isEmulator, recordMode)
             startTimer()
+            maybeStartBackgroundService()
         }
     }
 
@@ -85,6 +93,15 @@ class RecordViewModel(
         stopTimer()
         _isPaused.value = false
         _recordingSeconds.value = 0
+        RecordingService.stop(appContext)
+    }
+
+    private fun maybeStartBackgroundService() {
+        viewModelScope.launch {
+            if (settingsRepository.backgroundRecordingFlow.first()) {
+                RecordingService.start(appContext)
+            }
+        }
     }
 
     fun pauseRecording() {
@@ -106,6 +123,7 @@ class RecordViewModel(
         pendingAudioPath = audioRecorderManager.stopRecording()
         _isPaused.value = false
         _recordingSeconds.value = 0
+        RecordingService.stop(appContext)
     }
 
     private fun startTimer() {
@@ -211,6 +229,7 @@ class RecordViewModel(
         stopTimer()
         pollJob?.cancel()
         _isPaused.value = false
+        RecordingService.stop(appContext)
     }
 
     companion object {
@@ -218,12 +237,14 @@ class RecordViewModel(
             audioRecorderManager: AudioRecorderManager,
             repository: NoteRepository,
             geminiApiKey: String,
-            groqApiKey: String
+            groqApiKey: String,
+            appContext: Context,
+            settingsRepository: SettingsRepository
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return RecordViewModel(audioRecorderManager, repository, geminiApiKey, groqApiKey) as T
+                    return RecordViewModel(audioRecorderManager, repository, geminiApiKey, groqApiKey, appContext, settingsRepository) as T
                 }
             }
     }
