@@ -529,21 +529,35 @@ class ResultViewModel(
                         val updatedNote = currentNote.copy(rawText = transcript, timestamp = System.currentTimeMillis())
                         _note.value = updatedNote
                         noteRepository.update(updatedNote)
-                        
-                        checkAndTriggerAutoProcess(updatedNote)
-                        
+
+                        // Title generation and summarization used to fire as two independent,
+                        // uncoordinated coroutines here. That caused two problems:
+                        // 1) In Mix mode they always hit two different providers (Groq for title,
+                        //    Gemini for summary) at the exact same moment with zero backpressure,
+                        //    which is the most likely trigger for the "works alone, fails together"
+                        //    503s some of you saw only in Mix.
+                        // 2) Whichever finished last called note.copy(...) on its OWN stale snapshot
+                        //    of the note (taken before the other one wrote its result), silently
+                        //    erasing whatever the other one had just saved (title vs summary race).
+                        // Fix: run title generation first and AWAIT it, then hand the up-to-date
+                        // note (now containing the title) into the summarization step.
                         launch(Dispatchers.IO) {
+                            var noteWithTitle = updatedNote
                             try {
-                                generateTitleFromTranscript(updatedNote, transcript, provider, geminiKey, groqKey)
+                                noteWithTitle = generateTitleFromTranscript(updatedNote, transcript, provider, geminiKey, groqKey) ?: updatedNote
                             } catch (e: Exception) {
                                 e.printStackTrace()
-                                // Fallback: si falla la generación, usar un título por defecto
-                                if (updatedNote.title.isBlank()) {
+                                if (noteWithTitle.title.isBlank()) {
                                     val fallbackTitle = transcript.take(60).trim().lineSequence().firstOrNull { it.isNotBlank() } ?: "Untitled Note"
-                                    val finalNote = updatedNote.copy(title = fallbackTitle)
-                                    _note.value = finalNote
-                                    noteRepository.update(finalNote)
+                                    noteWithTitle = noteWithTitle.copy(title = fallbackTitle)
+                                    launch(Dispatchers.Main) {
+                                        _note.value = noteWithTitle
+                                        noteRepository.update(noteWithTitle)
+                                    }
                                 }
+                            }
+                            launch(Dispatchers.Main) {
+                                checkAndTriggerAutoProcess(noteWithTitle)
                             }
                         }
                     } else if (transcript?.contains("[No speech detected]") == true) {
@@ -566,7 +580,7 @@ class ResultViewModel(
         }
     }
 
-    private suspend fun generateTitleFromTranscript(note: NoteEntity, transcript: String, provider: Int, geminiKey: String, groqKey: String) {
+    private suspend fun generateTitleFromTranscript(note: NoteEntity, transcript: String, provider: Int, geminiKey: String, groqKey: String): NoteEntity? {
         val systemPrompt = """
             Buat judul singkat 3-5 kata dalam bahasa yang sama dengan teks yang diberikan pengguna.
             RULES: Hanya output judulnya saja. Tanpa tanda kutip, tanpa titik di akhir, dan tanpa penjelasan apapun.
@@ -598,7 +612,9 @@ class ResultViewModel(
             val finalNote = note.copy(title = aiTitle)
             _note.value = finalNote
             noteRepository.update(finalNote)
+            return finalNote
         }
+        return null
     }
 
     private fun processTextAuto(currentNote: NoteEntity, language: String, task: Int, format: Int, metaTag: String, provider: Int) {
@@ -642,7 +658,11 @@ class ResultViewModel(
                     else -> ""
                 }
 
-                var systemPrompt = """
+                // Gemini and Groq get their own fully independent system prompts now instead of
+                // one shared string with a Groq-only patch bolted on top. Edit one freely without
+                // touching the other's behavior. They only get combined/mixed in Mix mode's routing
+                // logic above (effectiveProviderForProcessing) — never in the prompt content itself.
+                val geminiSystemPrompt = """
                     [SYSTEM: ENGINE MODE ENABLED]
                     You are a strict text processing engine, NOT a conversational chatbot.
                     TARGET LANGUAGE: $language. You MUST translate the output to $language if the input is different.
@@ -670,16 +690,38 @@ class ResultViewModel(
                          d) DO NOT use nested double quotes inside labels; use single quotes instead (e.g., `D["Kelas '07.00'"]`). Keep labels short (max 6 words).
                        - IF NO (purely descriptive): Skip diagram completely.
                 """.trimIndent()
-                
-                if (provider == 1) {
-                    systemPrompt += """
-                        
-                        [GROQ/LLAMA OVERRIDES]
-                        7. MERMAID ALLOWANCE: Rule #2 forbids GLOBAL wrapping, but you MUST use ` ```mermaid ` blocks for diagrams. DO NOT avoid backticks for diagrams!
-                        8. MERMAID ENFORCEMENT: If the text explains a system flow, login steps, conditions, or processes, YOU ARE FORCED to output a flowchart. Do not ignore logic.
-                        9. STRICT MATH ISOLATION: Equations inside `${'$'}${'$'}` or `${'$'}` MUST remain in standard universal symbols (Latin/Greek/Numbers). DO NOT translate variables or put Arabic, Chinese, Korean, or any Non-Latin characters INSIDE the math blocks. Put all translated text OUTSIDE the LaTeX blocks.
-                    """.trimIndent()
-                }
+
+                val groqSystemPrompt = """
+                    [SYSTEM: ENGINE MODE ENABLED]
+                    You are a strict text processing engine, NOT a conversational chatbot.
+                    TARGET LANGUAGE: $language. You MUST translate the output to $language if the input is different.
+                    
+                    $taskInstruction
+                    $formatInstruction
+                    $taskFormatHint
+
+                    CRITICAL STRICT RULES YOU MUST OBEY:
+                    1. ZERO YAPPING: Output EXACTLY the final processed text. NO greetings, NO introductions, NO explanations of what you did.
+                    2. NO GLOBAL WRAPPING: DO NOT wrap your entire output in quotes or a global markdown code block. (EXCEPTION: mermaid diagrams, see rule 7.)
+                    3. MANDATORY LATEX & CHEMISTRY: Convert ALL mathematical concepts, formulas, and equations into valid LaTeX syntax. Use `${'$'}${'$'}` for block equations and `${'$'}` for inline math. For CHEMICAL formulas and reactions, you MUST use the `\ce{}` macro inside LaTeX.
+                    4. NO MATH MARKDOWN & NO QUOTES: KaTeX WILL CRASH if you use Markdown inside it. NEVER use asterisks (`**`, `*`) or underscores (`_`) INSIDE or immediately touching LaTeX blocks.
+                       - FATAL WRONG: `**${'$'}E=mc^2${'$'}**` or `${'$'}**E=mc^2**${'$'}`
+                       - CORRECT: `${'$'}E=mc^2${'$'}`
+                       If you desperately need to bold a mathematical element, YOU MUST use pure LaTeX: `${'$'}\mathbf{E}=mc^2${'$'}`. NEVER wrap equations in single or double quotes.
+                    5. CRITICAL: DO NOT generate tables under any circumstances.
+                    6. VISUAL DIAGRAMS (MANDATORY ANALYSIS):
+                       - Silently check: Does the text contain a process, schedule, logic, IF/THEN, or sequence?
+                       - IF YES: You MUST generate a Mermaid diagram in a ```mermaid ... ``` block.
+                       - STRICT MERMAID RULES:
+                         a) ONLY use `flowchart TD` or `flowchart LR`. DO NOT use sequenceDiagram, timeline, or anything else.
+                         b) ALWAYS wrap node labels in double quotes. Example: `A["Start"] --> B["Check Data"]`.
+                         c) For IF/THEN conditions, use standard edge text. Example: `B -->|Yes| C["Success"]` or `B -->|No| D["Fail"]`. NEVER use `|>`.
+                         d) DO NOT use nested double quotes inside labels; use single quotes instead (e.g., `D["Kelas '07.00'"]`). Keep labels short (max 6 words).
+                       - IF NO (purely descriptive): Skip diagram completely.
+                    7. MERMAID ALLOWANCE: Rule #2 forbids global wrapping, but you MUST use ` ```mermaid ` blocks for diagrams. DO NOT avoid backticks for diagrams!
+                    8. MERMAID ENFORCEMENT: If the text explains a system flow, login steps, conditions, or processes, YOU ARE FORCED to output a flowchart. Do not ignore logic.
+                    9. STRICT MATH ISOLATION: Equations inside `${'$'}${'$'}` or `${'$'}` MUST remain in standard universal symbols (Latin/Greek/Numbers). DO NOT translate variables or put Arabic, Chinese, Korean, or any Non-Latin characters INSIDE the math blocks. Put all translated text OUTSIDE the LaTeX blocks.
+                """.trimIndent()
                 
                 val userContent = "Process this text strictly into $language:\n\n${currentNote.rawText}"
 
@@ -687,14 +729,14 @@ class ResultViewModel(
                     val request = GroqChatRequest(
                         model = "openai/gpt-oss-120b",
                         messages = listOf(
-                            GroqMessage(role = "system", content = systemPrompt),
+                            GroqMessage(role = "system", content = groqSystemPrompt),
                             GroqMessage(role = "user", content = userContent)
                         )
                     )
                     RetrofitClient.groqService.generateContent("Bearer $apiKey", request).choices?.firstOrNull()?.message?.content
                 } else { // Gemini
                     val request = GenerateContentRequest(
-                        systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
+                        systemInstruction = Content(parts = listOf(Part(text = geminiSystemPrompt))),
                         contents = listOf(Content(parts = listOf(Part(text = userContent))))
                     )
                     RetrofitClient.service.generateContent(apiKey, request).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
