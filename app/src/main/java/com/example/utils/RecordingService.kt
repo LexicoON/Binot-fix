@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.example.BinotApplication
 import com.example.MainActivity
@@ -70,7 +71,12 @@ class RecordingService : Service() {
                 stopSelfCleanly()
                 return START_NOT_STICKY
             }
-            else -> beginWatching()
+            else -> {
+                // TEMP DIAGNOSTIC (remove once confirmed working): proves onStartCommand
+                // is actually being reached at all.
+                Toast.makeText(applicationContext, "RecordingService: onStartCommand reached", Toast.LENGTH_SHORT).show()
+                beginWatching()
+            }
         }
         return START_NOT_STICKY
     }
@@ -79,7 +85,20 @@ class RecordingService : Service() {
         if (watcherJob != null) return // already running
 
         elapsedSeconds = 0
-        startForeground(NOTIFICATION_ID, buildNotification(elapsedSeconds), if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0)
+        try {
+            val notification = buildNotification(elapsedSeconds)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            // TEMP DIAGNOSTIC (remove once we confirm the notification shows correctly):
+            // if startForeground() is being blocked or throwing for any reason, this
+            // makes that visible on-device without needing adb/logcat.
+            Toast.makeText(applicationContext, "RecordingService failed: ${e.javaClass.simpleName}: ${e.message}", Toast.LENGTH_LONG).show()
+            e.printStackTrace()
+        }
 
         val audioRecorderManager = (applicationContext as BinotApplication).container.audioRecorderManager
 
