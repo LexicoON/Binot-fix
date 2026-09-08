@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.core.Spring
@@ -111,6 +112,10 @@ fun SettingsScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val recordMode by viewModel.recordMode.collectAsState() 
     val aiProvider by viewModel.aiProvider.collectAsState() 
+    val backgroundRecordingEnabled by viewModel.backgroundRecordingEnabled.collectAsState()
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { /* If denied, the background recording toggle still works — the OS just won't show the ongoing notification. */ }
 
     // AI Preferences State (Actual Saved Data)
     val aiLanguage by viewModel.aiLanguage.collectAsState()
@@ -683,6 +688,37 @@ fun SettingsScreen(
                                 },
                                 selected = recordMode == 1
                             ) { Text("Accurate") }
+                        }
+                    }
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Record in Background", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Keep recording with the screen off or the app minimized. Shows a notification with the elapsed time while it's active.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = backgroundRecordingEnabled,
+                                onCheckedChange = { enabled ->
+                                    viewModel.saveBackgroundRecording(enabled)
+                                    if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                }
+                            )
                         }
                     }
                 }
