@@ -304,7 +304,7 @@ fun RecordScreen(
                                                     .sharedBounds(
                                                         sharedContentState = rememberSharedContentState("record_note-${note.id}"),
                                                         animatedVisibilityScope = animatedVisibilityScope,
-                                                        resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds(),
+                                                        resizeMode = SharedTransitionScope.scaleToBounds,
                                                         boundsTransform = { _, _ -> tween(300) }
                                                     )
                                                     .clip(RoundedCornerShape(32.dp))
