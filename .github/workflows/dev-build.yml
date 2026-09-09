@@ -1,12 +1,14 @@
-name: Dev Build APK
+name: Build Dev APK
 
-# Se dispara automáticamente cada vez que subís cambios a la rama 'dev'
 on:
   push:
     branches:
       - dev
+      - main
+  pull_request:
+    branches:
+      - dev
 
-# Si mandás dos commits seguidos, cancela el build anterior para no gastar minutos gratis
 concurrency:
   group: dev-${{ github.ref }}
   cancel-in-progress: true
@@ -15,6 +17,8 @@ jobs:
   build:
     name: Build Dev APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout source
@@ -33,11 +37,17 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon
 
-      - name: Upload APK Artifact
+      - name: Locate APK
+        id: locate
+        run: |
+          APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n1)
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+          echo "Built APK: $APK"
+
+      - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-dev
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 7
+          name: app-dev-debug
+          path: ${{ steps.locate.outputs.apk_path }}
