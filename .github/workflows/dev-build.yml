@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - 'dev'
+  pull_request:
+    branches:
+      - 'dev'
 
 # Allow only one concurrent release build to avoid colliding on tag/state
 concurrency:
