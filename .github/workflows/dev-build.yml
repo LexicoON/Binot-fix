@@ -1,0 +1,43 @@
+name: Dev Build APK
+
+# Se dispara automáticamente cada vez que subís cambios a la rama 'dev'
+on:
+  push:
+    branches:
+      - dev
+
+# Si mandás dos commits seguidos, cancela el build anterior para no gastar minutos gratis
+concurrency:
+  group: dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Dev APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-dev
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
