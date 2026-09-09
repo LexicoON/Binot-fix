@@ -104,7 +104,7 @@ data class GithubAsset(
 // --- Retrofit Services ---
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-flash-latest:generateContent")
+    @POST("v1beta/models/gemini-3.5-flash-lite:generateContent")
     suspend fun generateContent(
         @Query("key") apiKey: String,
         @Body request: GenerateContentRequest
