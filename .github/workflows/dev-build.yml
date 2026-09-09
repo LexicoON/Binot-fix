@@ -1,4 +1,4 @@
-name: Build dev APK
+name: Build dev
 
 # Run this workflow when a commit is pushed to the dev branch
 on:
