@@ -23,8 +23,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
@@ -41,7 +41,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -123,6 +125,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
     val isDataLoaded by settingsViewModel.isDataLoaded.collectAsState()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     
     // State Tracker untuk "Open With" dari WA
     val incomingUri by mainActivity.incomingIntentUri.collectAsState()
@@ -159,34 +162,46 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             if (currentRoute in listOf("record", "history", "settings")) {
-                NavigationBar {
-                    NavigationBarItem(
+                // M3 Expressive: ShortNavigationBar replaces the baseline NavigationBar
+                // for compact (phone) screens. It uses the expressive motion scheme to
+                // morph the selected pill indicator with spring physics.
+                ShortNavigationBar {
+                    ShortNavigationBarItem(
                         selected = currentRoute == "record",
-                        onClick = { navController.navigate("record") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }},
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("record") {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
                         label = { Text("Record") }
                     )
-                    NavigationBarItem(
+                    ShortNavigationBarItem(
                         selected = currentRoute == "history",
-                        onClick = { navController.navigate("history") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }},
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("history") {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         icon = { Icon(Icons.Default.History, contentDescription = "History") },
                         label = { Text("History") }
                     )
-                    NavigationBarItem(
+                    ShortNavigationBarItem(
                         selected = currentRoute == "settings",
-                        onClick = { navController.navigate("settings") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }},
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("settings") {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                         label = { Text("Settings") }
                     )

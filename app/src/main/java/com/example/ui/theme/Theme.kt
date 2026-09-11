@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -101,6 +102,11 @@ fun BinotTheme(
         colorScheme = finalColorScheme,
         typography = Typography,
         shapes = ExpressiveShapes,
+        // In 1.5.0-alpha27 the function was renamed to MotionScheme.expressive()
+        // (lives on the MotionScheme companion object). It drives the spring
+        // physics for ButtonDefaults.shapes(), SegmentedButton,
+        // ShortNavigationBarItem, Switch, etc.
+        motionScheme = MotionScheme.expressive(),
         content = content
     )
 }

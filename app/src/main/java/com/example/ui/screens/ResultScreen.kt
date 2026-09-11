@@ -13,6 +13,7 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -65,6 +66,8 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -79,6 +82,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -1130,19 +1134,25 @@ fun ResultScreen(
         )
     }
 
+    // ============================================================
+    // SIDE PANEL — renovado con secciones, bouncy chips y headers.
+    // Único lugar donde se permite el SingleChoiceSegmentedButtonRow.
+    // ============================================================
     if (showSidePanel && note != null) {
         ModalBottomSheet(
             onDismissRequest = { showSidePanel = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(24.dp)
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 24.dp)
             ) {
-                Text("Labels", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(12.dp))
+                // ---------- LABELS ----------
+                PanelSectionHeader(icon = Icons.Default.Label, title = "Labels")
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1150,49 +1160,39 @@ fun ResultScreen(
                     items(allLabels.filter { it.isNotBlank() }) { label ->
                         val activeLabels = note!!.label?.split("|")?.map { it.trim() } ?: emptyList()
                         val isSelected = activeLabels.contains(label)
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .clickable { viewModel.toggleLabel(label) }
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        BouncyChip(
+                            onClick = { viewModel.toggleLabel(label) },
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Label, null, tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(label, color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-                            }
+                            Icon(Icons.Default.Label, null, tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(label, color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                         }
                     }
-                    
                     item {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
-                                .clickable { showNewLabelDialog = true }
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        BouncyChip(
+                            onClick = { showNewLabelDialog = true },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("New Label", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
-                            }
+                            Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("New Label", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(24.dp))
 
-                Text("Find & Format", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(16.dp))
+                SectionSpacer()
+
+                // ---------- FIND & FORMAT ----------
+                PanelSectionHeader(icon = Icons.Default.Search, title = "Find & Format")
                 OutlinedTextField(
                     value = searchHighlightQuery,
                     onValueChange = { searchHighlightQuery = it },
                     label = { Text("Find word in note...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -1226,15 +1226,15 @@ fun ResultScreen(
                                     }
                                 }.padding(vertical = 12.dp, horizontal = 8.dp)
                             )
-                            HorizontalDivider()
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-                Text("Reading Font", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-                
+
+                SectionSpacer()
+
+                // ---------- READING FONT (selectores viejos permitidos SOLO aquí) ----------
+                PanelSectionHeader(icon = Icons.Default.TextFields, title = "Reading Font")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     SegmentedButton(
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
@@ -1253,18 +1253,16 @@ fun ResultScreen(
                     ) { Text("Mono") }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(24.dp))
+                SectionSpacer()
 
-                Text("Export & Media", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(12.dp))
+                // ---------- EXPORT & MEDIA ----------
+                PanelSectionHeader(icon = Icons.Default.Tune, title = "Export & Media")
 
                 if (note!!.audioPath == null) {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                     ) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Info, contentDescription = "Info", tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -1277,7 +1275,7 @@ fun ResultScreen(
                         }
                     }
                 }
-                
+
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1303,20 +1301,22 @@ fun ResultScreen(
                         item {
                             val playInteractionSource = remember { MutableInteractionSource() }
                             val isPlayPressed by playInteractionSource.collectIsPressedAsState()
-                            val playWidth by animateDpAsState(
-                                targetValue = if (isPlayPressed) 130.dp else if (isPlaying) 120.dp else 110.dp,
-                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-                                label = "playWidth"
+                            val playScale by animateFloatAsState(
+                                targetValue = if (isPlayPressed) 0.92f else 1f,
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = 1800f),
+                                label = "playScale"
                             )
                             Box(
                                 modifier = Modifier
-                                    .width(playWidth).height(48.dp).clip(CircleShape)
+                                    .scale(playScale)
+                                    .height(48.dp).clip(CircleShape)
                                     .background(if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer)
                                     .clickable(
                                         interactionSource = playInteractionSource,
                                         indication = null,
                                         onClick = { viewModel.toggleAudio() }
-                                    ),
+                                    )
+                                    .padding(horizontal = 16.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1364,7 +1364,6 @@ fun ResultScreen(
                     }
 
                     item {
-                        // LOGIKA TOMBOL SHARE YANG BARU (Eksklusif JSON + MP4)
                         BouncyCapsule(
                             onClick = {
                                 viewModel.shareBinotFile(context) { uri, msg ->
@@ -1392,7 +1391,7 @@ fun ResultScreen(
                 }
 
                 if (note!!.audioPath != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Slider(
                         value = playbackProgress,
                         onValueChange = { viewModel.seekAudio(it) },
@@ -1400,9 +1399,82 @@ fun ResultScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
+    }
+}
+
+// ============================================================
+// HELPERS DEL PANEL
+// ============================================================
+
+@Composable
+private fun PanelSectionHeader(icon: ImageVector, title: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(bottom = 12.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun SectionSpacer() {
+    Spacer(modifier = Modifier.height(16.dp))
+    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+    Spacer(modifier = Modifier.height(16.dp))
+}
+
+@Composable
+private fun BouncyChip(
+    onClick: () -> Unit,
+    containerColor: Color,
+    contentColor: Color,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            scaleAnim.animateTo(
+                0.90f,
+                spring(dampingRatio = 0.62f, stiffness = 1800f)
+            )
+        } else {
+            if (scaleAnim.value > 0.96f) {
+                scaleAnim.snapTo(0.94f)
+            }
+            scaleAnim.animateTo(
+                1f,
+                spring(dampingRatio = 0.38f, stiffness = 550f)
+            )
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .scale(scaleAnim.value)
+            .clip(RoundedCornerShape(50))
+            .background(containerColor)
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
 
@@ -1484,14 +1556,28 @@ private fun BouncyCapsule(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label = "capsuleScale"
-    )
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(isPressed) {
+        if (isPressed) {
+            scaleAnim.animateTo(
+                0.88f,
+                spring(dampingRatio = 0.62f, stiffness = 1800f)
+            )
+        } else {
+            if (scaleAnim.value > 0.96f) {
+                scaleAnim.snapTo(0.93f)
+            }
+            scaleAnim.animateTo(
+                1f,
+                spring(dampingRatio = 0.38f, stiffness = 550f)
+            )
+        }
+    }
+
     Box(
         modifier = modifier
-            .scale(scale)
+            .scale(scaleAnim.value)
             .height(48.dp)
             .clip(CircleShape)
             .background(containerColor)

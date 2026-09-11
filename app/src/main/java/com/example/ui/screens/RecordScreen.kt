@@ -84,6 +84,17 @@ fun RecordScreen(
     val recordingSeconds by viewModel.recordingSeconds.collectAsState()
     val recentNotes by viewModel.recentNotes.collectAsState()
 
+    // Filtro de seguridad: la nota sintética del sistema (binot_systm_labels / [..])
+    // no debe aparecer como tarjeta en la fila superior.
+    val visibleNotes = remember(recentNotes) {
+        recentNotes.filterNot { note ->
+            val t = note.title.trim()
+            t.contains("binot_syst", ignoreCase = true) ||
+            t.contains("binot_system", ignoreCase = true) ||
+            (t.startsWith("[") && t.endsWith("]"))
+        }
+    }
+
     val coroutineScope = rememberCoroutineScope()
 
     var isTappedExpanded by remember { mutableStateOf(false) }
@@ -283,7 +294,7 @@ fun RecordScreen(
                             }
 
                             androidx.compose.animation.AnimatedVisibility(
-                                visible = !isRecording && !isPaused && recentNotes.isNotEmpty(),
+                                visible = !isRecording && !isPaused && visibleNotes.isNotEmpty(),
                                 enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { 50 }),
                                 exit = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { 50 })
                             ) {
@@ -294,7 +305,7 @@ fun RecordScreen(
                                     verticalArrangement = Arrangement.spacedBy(12.dp),
                                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp) 
                                 ) {
-                                    items(recentNotes, key = { it.id }) { note ->
+                                    items(visibleNotes, key = { it.id }) { note ->
                                         val displayTitle = if (note.title.isBlank()) "No title" else note.title
                                         val randomPadding = remember(note.id) { (note.id * 23 % 40).dp }
 

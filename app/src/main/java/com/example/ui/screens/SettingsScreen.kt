@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -25,22 +26,40 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Contrast
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,16 +77,38 @@ private fun BouncyButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    colors: ButtonColors = ButtonDefaults.buttonColors(),
     content: @Composable RowScope.() -> Unit
 ) {
-    // M3 Expressive gives this press feedback natively via shape morphing
-    // (round -> squircle on press), driven by MaterialTheme.motionScheme,
-    // so the manual scale/interactionSource bounce hack is no longer needed.
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            scaleAnim.animateTo(
+                0.85f,
+                spring(dampingRatio = 0.62f, stiffness = 1800f)
+            )
+        } else {
+            // Tap rápido: si nunca bajó de 0.96, forzamos un squish visible.
+            if (scaleAnim.value > 0.96f) {
+                scaleAnim.snapTo(0.92f)
+            }
+            scaleAnim.animateTo(
+                1f,
+                spring(dampingRatio = 0.38f, stiffness = 550f)
+            )
+        }
+    }
+
     Button(
         onClick = onClick,
         enabled = enabled,
         shapes = ButtonDefaults.shapes(),
-        modifier = modifier,
+        colors = colors,
+        interactionSource = interactionSource,
+        modifier = modifier.scale(scaleAnim.value),
         content = content
     )
 }
@@ -79,13 +120,78 @@ private fun BouncyOutlinedButton(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            scaleAnim.animateTo(
+                0.88f,
+                spring(dampingRatio = 0.62f, stiffness = 1800f)
+            )
+        } else {
+            if (scaleAnim.value > 0.96f) {
+                scaleAnim.snapTo(0.94f)
+            }
+            scaleAnim.animateTo(
+                1f,
+                spring(dampingRatio = 0.38f, stiffness = 550f)
+            )
+        }
+    }
+
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
         shapes = ButtonDefaults.shapes(),
-        modifier = modifier,
+        interactionSource = interactionSource,
+        modifier = modifier.scale(scaleAnim.value),
         content = content
     )
+}
+
+@Composable
+private fun ExpressiveToggleGroup(
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    labels: List<String>,
+    icons: List<ImageVector>,
+    modifier: Modifier = Modifier
+) {
+    val haptics = LocalHapticFeedback.current
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+    ) {
+        labels.forEachIndexed { index, label ->
+            val isSelected = selectedIndex == index
+            val iconScale by animateFloatAsState(
+                targetValue = if (isSelected) 1.18f else 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                ),
+                label = "toggleScale_$index"
+            )
+            ToggleButton(
+                checked = isSelected,
+                onCheckedChange = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onSelect(index)
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.Check else icons[index],
+                    contentDescription = label,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .scale(iconScale)
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -220,7 +326,7 @@ fun SettingsScreen(
             title = { Text("Warning") },
             text = { Text("Recording will be stopped and discarded. Continue?") },
             confirmButton = {
-                Button(
+                BouncyButton(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     onClick = {
                         onDiscardRecording()
@@ -242,7 +348,7 @@ fun SettingsScreen(
             title = { Text("Save & Apply to All Notes?") },
             text = { Text("This will save your new preferences and reset the AI-generated results for all previous notes. They will be re-processed using your new preferences the next time you open them. Your original raw transcripts are completely safe.\n\nContinue?") },
             confirmButton = {
-                Button(
+                BouncyButton(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     onClick = {
                         showApplyAllDialog = false
@@ -417,23 +523,17 @@ fun SettingsScreen(
                                 Icon(Icons.Default.Info, contentDescription = "Task Info", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                             }
                         }
-                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                                onClick = { tempAiTask = 0 },
-                                selected = tempAiTask == 0
-                            ) { Text("Tidy Up", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                                onClick = { tempAiTask = 1 },
-                                selected = tempAiTask == 1
-                            ) { Text("Summary", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                                onClick = { tempAiTask = 2 },
-                                selected = tempAiTask == 2
-                            ) { Text("Analyze", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        }
+                        ExpressiveToggleGroup(
+                            selectedIndex = tempAiTask,
+                            onSelect = { tempAiTask = it },
+                            labels = listOf("Tidy Up", "Summary", "Analyze"),
+                            icons = listOf(
+                                Icons.Default.AutoFixHigh,
+                                Icons.Default.Summarize,
+                                Icons.Default.Insights
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -451,18 +551,16 @@ fun SettingsScreen(
                                 Icon(Icons.Default.Info, contentDescription = "Format Info", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                             }
                         }
-                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                                onClick = { tempAiFormat = 0 },
-                                selected = tempAiFormat == 0
-                            ) { Text("Paragraphs") }
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                                onClick = { tempAiFormat = 1 },
-                                selected = tempAiFormat == 1
-                            ) { Text("Bullets") }
-                        }
+                        ExpressiveToggleGroup(
+                            selectedIndex = tempAiFormat,
+                            onSelect = { tempAiFormat = it },
+                            labels = listOf("Paragraphs", "Bullets"),
+                            icons = listOf(
+                                Icons.Default.Notes,
+                                Icons.Default.FormatListBulleted
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
 
                         Spacer(modifier = Modifier.height(24.dp))
                         val isChanged = tempAiLanguage != aiLanguage || tempAiTask != aiTask || tempAiFormat != aiFormat
@@ -496,23 +594,17 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                                onClick = { tempAiProvider = 0 },
-                                selected = tempAiProvider == 0
-                            ) { Text("Gemini", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                                onClick = { tempAiProvider = 1 },
-                                selected = tempAiProvider == 1
-                            ) { Text("Groq", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                                onClick = { tempAiProvider = 2 },
-                                selected = tempAiProvider == 2
-                            ) { Text("Mix (Beta)", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        }
+                        ExpressiveToggleGroup(
+                            selectedIndex = tempAiProvider,
+                            onSelect = { tempAiProvider = it },
+                            labels = listOf("Gemini", "Groq", "Mix (Beta)"),
+                            icons = listOf(
+                                Icons.Default.AutoAwesome,
+                                Icons.Default.Bolt,
+                                Icons.Default.Shuffle
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -650,36 +742,25 @@ fun SettingsScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                                onClick = { 
-                                    if (recordMode != 0) {
-                                        if (isRecording) {
-                                            pendingModeSelection = 0
-                                            showWarningDialog = true
-                                        } else {
-                                            viewModel.saveRecordMode(0) 
-                                        }
+                        ExpressiveToggleGroup(
+                            selectedIndex = recordMode,
+                            onSelect = { newIndex ->
+                                if (recordMode != newIndex) {
+                                    if (isRecording) {
+                                        pendingModeSelection = newIndex
+                                        showWarningDialog = true
+                                    } else {
+                                        viewModel.saveRecordMode(newIndex)
                                     }
-                                },
-                                selected = recordMode == 0
-                            ) { Text("Fast") }
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                                onClick = { 
-                                    if (recordMode != 1) {
-                                        if (isRecording) {
-                                            pendingModeSelection = 1
-                                            showWarningDialog = true
-                                        } else {
-                                            viewModel.saveRecordMode(1) 
-                                        }
-                                    }
-                                },
-                                selected = recordMode == 1
-                            ) { Text("Accurate") }
-                        }
+                                }
+                            },
+                            labels = listOf("Fast", "Accurate"),
+                            icons = listOf(
+                                Icons.Default.FlashOn,
+                                Icons.Default.GraphicEq
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
 
@@ -730,12 +811,18 @@ fun SettingsScreen(
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text("Appearance", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(16.dp))
-                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                            SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 0, count = 4), onClick = { viewModel.saveThemeMode(0) }, selected = themeMode == 0) { Text("Auto") }
-                            SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 1, count = 4), onClick = { viewModel.saveThemeMode(1) }, selected = themeMode == 1) { Text("Light") }
-                            SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 2, count = 4), onClick = { viewModel.saveThemeMode(2) }, selected = themeMode == 2) { Text("Dark") }
-                            SegmentedButton(shape = SegmentedButtonDefaults.itemShape(index = 3, count = 4), onClick = { viewModel.saveThemeMode(3) }, selected = themeMode == 3) { Text("Amoled", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp) }
-                        }
+                        ExpressiveToggleGroup(
+                            selectedIndex = themeMode,
+                            onSelect = { viewModel.saveThemeMode(it) },
+                            labels = listOf("Auto", "Light", "Dark", "Amoled"),
+                            icons = listOf(
+                                Icons.Default.PhoneAndroid,
+                                Icons.Default.LightMode,
+                                Icons.Default.DarkMode,
+                                Icons.Default.Contrast
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
 

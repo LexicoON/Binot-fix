@@ -12,8 +12,11 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -31,6 +34,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -73,6 +81,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -81,6 +90,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -89,6 +99,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -100,6 +111,20 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+// ============================================================
+// Magnetic Swipe State
+// Compartido entre todas las tarjetas de la grilla para que las
+// vecinas "tiren" de la nota que se está arrastrando.
+// ============================================================
+@Stable
+class MagneticSwipeState {
+    var activeId by mutableStateOf<Int?>(null)
+    var dragX by mutableFloatStateOf(0f)
+    var isDismissing by mutableStateOf(false)
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -151,6 +176,12 @@ fun HistoryScreen(
 
     val gridState = rememberLazyStaggeredGridState()
     val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
+
+    // Shared magnetic swipe state + la lista ordenada de IDs para calcular distancias.
+    val swipeState = remember { MagneticSwipeState() }
+    val orderedNoteIds = remember(pinnedNotes, unpinnedNotes) {
+        pinnedNotes.map { it.id } + unpinnedNotes.map { it.id }
+    }
 
     val currentVersion = remember {
         try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } 
@@ -514,23 +545,74 @@ fun HistoryScreen(
             floatingActionButton = {
                 if (!selectionMode) {
                     with(sharedTransitionScope) {
-                        ExtendedFloatingActionButton(
+                        val corner by animateDpAsState(
+                            targetValue = if (isFabExpanded) 28.dp else 16.dp,
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                            label = "fabCorner"
+                        )
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val pressed by interactionSource.collectIsPressedAsState()
+                        val fabScale by animateFloatAsState(
+                            targetValue = if (pressed) 0.90f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "fabScale"
+                        )
+
+                        FloatingActionButton(
                             onClick = { importLauncher.launch(arrayOf("*/*")) },
-                            expanded = isFabExpanded,
-                            icon = { Icon(Icons.Default.Audiotrack, "Import File") },
-                            text = { Text("Import File") },
+                            shape = RoundedCornerShape(corner),
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 0.dp,
+                                pressedElevation = 0.dp,
+                                focusedElevation = 0.dp,
+                                hoveredElevation = 0.dp
+                            ),
+                            interactionSource = interactionSource,
                             modifier = Modifier
                                 .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
                                 .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
-                                .then(with(animatedVisibilityScope) { 
-                                    Modifier.animateEnterExit(
-                                        enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
-                                        exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
-                                    ) 
-                                })
-                        )
+                                .then(
+                                    with(animatedVisibilityScope) {
+                                        Modifier.animateEnterExit(
+                                            enter = scaleIn(
+                                                initialScale = 0f,
+                                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                                            ),
+                                            exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
+                                        )
+                                    }
+                                )
+                                .scale(fabScale)
+                                .animateContentSize(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    ),
+                                    alignment = Alignment.Center
+                                )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = if (isFabExpanded) 20.dp else 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Audiotrack, contentDescription = "Import File")
+                                AnimatedVisibility(
+                                    visible = isFabExpanded,
+                                    enter = expandHorizontally(expandFrom = Alignment.Start, animationSpec = spring()) + fadeIn(animationSpec = spring()),
+                                    exit = shrinkHorizontally(shrinkTowards = Alignment.Start, animationSpec = spring()) + fadeOut(animationSpec = spring())
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text("Import File", style = MaterialTheme.typography.labelLarge)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -592,6 +674,8 @@ fun HistoryScreen(
                                             viewModel = viewModel,
                                             parentScope = coroutineScope,
                                             snackbarHostState = snackbarHostState,
+                                            swipeState = swipeState,
+                                            orderedNoteIds = orderedNoteIds,
                                             onSelect = { 
                                                 if (selectionMode) { 
                                                     selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
@@ -619,6 +703,8 @@ fun HistoryScreen(
                                             viewModel = viewModel,
                                             parentScope = coroutineScope,
                                             snackbarHostState = snackbarHostState,
+                                            swipeState = swipeState,
+                                            orderedNoteIds = orderedNoteIds,
                                             onSelect = { 
                                                 if (selectionMode) { 
                                                     selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
@@ -852,6 +938,9 @@ fun HistoryScreen(
     }
 }
 
+// ============================================================
+// DismissibleNoteCard con Magnetic Swipe
+// ============================================================
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun DismissibleNoteCard(
@@ -863,73 +952,173 @@ fun DismissibleNoteCard(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     viewModel: HistoryViewModel,
-    parentScope: CoroutineScope, 
+    parentScope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
+    swipeState: MagneticSwipeState,
+    orderedNoteIds: List<Int>,
     onSelect: () -> Unit,
     onLongSelect: () -> Unit
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart || dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                viewModel.deleteMultiple(setOf(note.id))
-                parentScope.launch {
-                    val result = snackbarHostState.showSnackbar(
-                        message = "Note moved to Trash",
-                        actionLabel = "Undo",
-                        duration = SnackbarDuration.Short
-                    )
-                    if (result == SnackbarResult.ActionPerformed) {
-                        viewModel.undoDelete()
-                    } else {
-                        viewModel.clearRecentlyDeleted()
-                    }
-                }
-                false
-            } else {
-                false
-            }
-        }
+    val density = LocalDensity.current
+    val maxOffsetPx = with(density) { 380.dp.toPx() }
+    val thresholdPx = with(density) { 110.dp.toPx() }
+
+    var localOffsetX by remember { mutableFloatStateOf(0f) }
+    val scope = rememberCoroutineScope()
+
+    val isActive = swipeState.activeId == note.id
+
+    // Distancia en el listado global para calcular el factor de arrastre magnético.
+    val myIndex = remember(orderedNoteIds, note.id) { orderedNoteIds.indexOf(note.id) }
+    val activeIndex = remember(orderedNoteIds, swipeState.activeId) {
+        swipeState.activeId?.let { orderedNoteIds.indexOf(it) } ?: -1
+    }
+    val distance = if (myIndex == -1 || activeIndex == -1) 0 else abs(myIndex - activeIndex)
+
+    // Magnetic decay: la nota activa usa su offset directo; las vecinas
+    // reciben un porcentaje decreciente con la distancia al cuadrado.
+    // 0.30f hace que el vecino inmediato se sienta claramente.
+    val neighborFactor = when {
+        isActive -> 1f
+        distance == 0 -> 0f
+        else -> (1f / (distance.toFloat() * distance.toFloat())) * 0.30f
+    }
+
+    // Offset objetivo para las notas NO activas (las activas usan localOffsetX directo).
+    val neighborTarget = swipeState.dragX * neighborFactor
+    val animatedNeighborOffset by animateFloatAsState(
+        targetValue = neighborTarget,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "neighborOffset"
     )
 
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = !selectionMode,
-        enableDismissFromEndToStart = !selectionMode,
-        backgroundContent = {
-            val color by animateColorAsState(
-                targetValue = if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
-                label = "deleteColor"
-            )
-            val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(color, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 24.dp),
-                contentAlignment = alignment
-            ) {
-                if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
-                }
+    val displayOffset = if (isActive) localOffsetX else animatedNeighborOffset
+
+    val dragProgress = (abs(displayOffset) / thresholdPx).coerceIn(0f, 1f)
+    val deleteColor by animateColorAsState(
+        targetValue = if (dragProgress > 0f && isActive)
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = dragProgress)
+        else Color.Transparent,
+        label = "deleteColor"
+    )
+    val iconScale = 0.65f + 0.35f * dragProgress
+    val alignment = if (displayOffset > 0) Alignment.CenterStart else Alignment.CenterEnd
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        // Fondo de borrar (solo se pinta para la nota activa)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(deleteColor, RoundedCornerShape(16.dp))
+                .padding(horizontal = 24.dp),
+            contentAlignment = alignment
+        ) {
+            if (dragProgress > 0.05f && isActive) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.scale(iconScale)
+                )
             }
-        },
-        modifier = modifier
-    ) {
+        }
+
         with(sharedTransitionScope) {
-            NoteCard(
-                note = note, 
-                isSelected = isSelected,
-                selectedLabels = selectedLabels,
-                modifier = Modifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState("note-${note.id}"),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
-                    boundsTransform = { _, _ -> tween(300) }
-                ),
-                onLongClick = onLongSelect,
-                onClick = onSelect,
-                onLabelClick = { label -> viewModel.toggleLabelFilter(label) }
-            )
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(displayOffset.roundToInt(), 0) }
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        enabled = !selectionMode,
+                        state = rememberDraggableState { delta ->
+                            if (swipeState.activeId != note.id) {
+                                swipeState.activeId = note.id
+                            }
+                            val progress = (abs(localOffsetX) / maxOffsetPx).coerceIn(0f, 1f)
+                            // Fricción estilo Pixel: la resistencia crece cuadráticamente
+                            // con la distancia, así el dedo siente que jala un elástico.
+                            val resistance = 1f - progress * progress * 0.85f
+                            localOffsetX = (localOffsetX + delta * resistance)
+                                .coerceIn(-maxOffsetPx, maxOffsetPx)
+                            // Propagar al resto de las tarjetas.
+                            swipeState.dragX = localOffsetX
+                        },
+                        onDragStopped = { velocity ->
+                            val currentOffset = localOffsetX
+                            val shouldDismiss = abs(currentOffset) > thresholdPx || abs(velocity) > 800f
+                            if (shouldDismiss) {
+                                val target = if (currentOffset > 0) maxOffsetPx * 1.6f else -maxOffsetPx * 1.6f
+                                scope.launch {
+                                    animate(
+                                        initialValue = currentOffset,
+                                        targetValue = target,
+                                        animationSpec = spring(
+                                            dampingRatio = 0.70f,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    ) { value, _ -> 
+                                        localOffsetX = value
+                                        swipeState.dragX = value
+                                    }
+
+                                    // Liberar a las vecinas: activeId = null hace que
+                                    // el target del factor sea 0 y reboten de vuelta.
+                                    swipeState.activeId = null
+                                    swipeState.dragX = 0f
+
+                                    viewModel.deleteMultiple(setOf(note.id))
+                                    parentScope.launch {
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "Note moved to Trash",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            viewModel.undoDelete()
+                                        } else {
+                                            viewModel.clearRecentlyDeleted()
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Rebote elástico de vuelta al centro + liberar vecinas.
+                                scope.launch {
+                                    animate(
+                                        initialValue = currentOffset,
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = 0.30f,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    ) { value, _ -> 
+                                        localOffsetX = value
+                                        swipeState.dragX = value
+                                    }
+                                    swipeState.activeId = null
+                                    swipeState.dragX = 0f
+                                }
+                            }
+                        }
+                    )
+            ) {
+                NoteCard(
+                    note = note,
+                    isSelected = isSelected,
+                    selectedLabels = selectedLabels,
+                    modifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState("note-${note.id}"),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+                        boundsTransform = { _, _ -> tween(300) }
+                    ),
+                    onLongClick = onLongSelect,
+                    onClick = onSelect,
+                    onLabelClick = { label -> viewModel.toggleLabelFilter(label) }
+                )
+            }
         }
     }
 }
