@@ -1248,7 +1248,7 @@ fun ResultScreen(
                     ) { Text("Serif") }
                     SegmentedButton(
                         shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                        onClick = { selectedFont = FontFamily.Mono },
+                        onClick = { selectedFont = FontFamily.Monospace },
                         selected = selectedFont == FontFamily.Monospace
                     ) { Text("Mono") }
                 }
