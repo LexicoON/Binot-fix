@@ -21,6 +21,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -39,6 +40,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -514,23 +516,78 @@ fun HistoryScreen(
             floatingActionButton = {
                 if (!selectionMode) {
                     with(sharedTransitionScope) {
-                        ExtendedFloatingActionButton(
-                            onClick = { importLauncher.launch(arrayOf("*/*")) },
-                            expanded = isFabExpanded,
-                            icon = { Icon(Icons.Default.Audiotrack, "Import File") },
-                            text = { Text("Import File") },
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier
-                                .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
-                                .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
-                                .then(with(animatedVisibilityScope) { 
-                                    Modifier.animateEnterExit(
-                                        enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
-                                        exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
-                                    ) 
-                                })
-                        )
+                        // M3 Expressive: AnimatedContent swaps between a square (icon-only)
+                        // and a wide (icon + label) FAB. The shape morph + spring physics
+                        // come for free from the MotionScheme, so it actually "squishes"
+                        // on tap instead of just fading.
+                        AnimatedContent(
+                            targetState = isFabExpanded,
+                            transitionSpec = {
+                                if (targetState) {
+                                    (scaleIn(initialScale = 0.85f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn())
+                                        .togetherWith(scaleOut(targetScale = 0.85f, animationSpec = spring()) + fadeOut())
+                                } else {
+                                    (scaleIn(initialScale = 0.85f, animationSpec = spring()) + fadeIn())
+                                        .togetherWith(scaleOut(targetScale = 0.85f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeOut())
+                                }.using(SizeTransform(clip = false))
+                            },
+                            label = "ImportFabMorph"
+                        ) { expanded ->
+                            if (expanded) {
+                                FloatingActionButton(
+                                    onClick = { importLauncher.launch(arrayOf("*/*")) },
+                                    shape = CircleShape,
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
+                                        .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
+                                        .then(with(animatedVisibilityScope) {
+                                            Modifier.animateEnterExit(
+                                                enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
+                                                exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
+                                            )
+                                        })
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 20.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Audiotrack,
+                                            contentDescription = "Import File"
+                                        )
+                                        Text("Import File", style = MaterialTheme.typography.labelLarge)
+                                    }
+                                }
+                            } else {
+                                // Collapsed: square expressive FAB (the new M3 expressive FAB
+                                // supports a rounded-square shape via the default shapes param —
+                                // it gives the icon-button feel while keeping FAB prominence).
+                                FloatingActionButton(
+                                    onClick = { importLauncher.launch(arrayOf("*/*")) },
+                                    shape = RoundedCornerShape(20.dp),
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
+                                        .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
+                                        .then(with(animatedVisibilityScope) {
+                                            Modifier.animateEnterExit(
+                                                enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
+                                                exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
+                                            )
+                                        })
+                                ) {
+                                    Icon(
+                                        Icons.Default.Audiotrack,
+                                        contentDescription = "Import File"
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

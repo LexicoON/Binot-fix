@@ -25,6 +25,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.WideNavigationBar
+import androidx.compose.material3.WideNavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
@@ -159,8 +161,11 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             if (currentRoute in listOf("record", "history", "settings")) {
-                NavigationBar {
-                    NavigationBarItem(
+                // M3 Expressive: WideNavigationBar collapses unselected items to
+                // icon-only pills and expands the selected one to icon + label,
+                // morphing with the motionScheme's spring (the "squish" feel).
+                WideNavigationBar {
+                    WideNavigationBarItem(
                         selected = currentRoute == "record",
                         onClick = { navController.navigate("record") {
                             popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -170,7 +175,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
                         label = { Text("Record") }
                     )
-                    NavigationBarItem(
+                    WideNavigationBarItem(
                         selected = currentRoute == "history",
                         onClick = { navController.navigate("history") {
                             popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -180,7 +185,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         icon = { Icon(Icons.Default.History, contentDescription = "History") },
                         label = { Text("History") }
                     )
-                    NavigationBarItem(
+                    WideNavigationBarItem(
                         selected = currentRoute == "settings",
                         onClick = { navController.navigate("settings") {
                             popUpTo(navController.graph.startDestinationId) { saveState = true }

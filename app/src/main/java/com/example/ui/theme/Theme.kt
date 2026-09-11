@@ -4,9 +4,11 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.expressiveMotionScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -101,6 +103,11 @@ fun BinotTheme(
         colorScheme = finalColorScheme,
         typography = Typography,
         shapes = ExpressiveShapes,
+        // This is the bit that makes everything "squish": ButtonDefaults.shapes(),
+        // SegmentedButton, WideNavigationBarItem, and Switch all read their
+        // spring specs from MaterialTheme.motionScheme. Without expressiveMotionScheme(),
+        // shape morphing is silent (no animation).
+        motionScheme = expressiveMotionScheme(),
         content = content
     )
 }
