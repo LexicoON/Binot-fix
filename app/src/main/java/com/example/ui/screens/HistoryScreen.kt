@@ -114,6 +114,18 @@ import java.util.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+// ============================================================
+// Magnetic Swipe State
+// Compartido entre todas las tarjetas de la grilla para que las
+// vecinas "tiren" de la nota que se está arrastrando.
+// ============================================================
+@Stable
+class MagneticSwipeState {
+    var activeId by mutableStateOf<Int?>(null)
+    var dragX by mutableFloatStateOf(0f)
+    var isDismissing by mutableStateOf(false)
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HistoryScreen(
@@ -164,6 +176,12 @@ fun HistoryScreen(
 
     val gridState = rememberLazyStaggeredGridState()
     val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
+
+    // Shared magnetic swipe state + la lista ordenada de IDs para calcular distancias.
+    val swipeState = remember { MagneticSwipeState() }
+    val orderedNoteIds = remember(pinnedNotes, unpinnedNotes) {
+        pinnedNotes.map { it.id } + unpinnedNotes.map { it.id }
+    }
 
     val currentVersion = remember {
         try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } 
@@ -527,8 +545,6 @@ fun HistoryScreen(
             floatingActionButton = {
                 if (!selectionMode) {
                     with(sharedTransitionScope) {
-                        // Single FAB that morphs in place. No more AnimatedContent
-                        // cross-fade, so no overlapping elevation shadows.
                         val corner by animateDpAsState(
                             targetValue = if (isFabExpanded) 28.dp else 16.dp,
                             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
@@ -550,7 +566,6 @@ fun HistoryScreen(
                             shape = RoundedCornerShape(corner),
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            // Sombra apagada: acá estaba el glitch visual al scrollear.
                             elevation = FloatingActionButtonDefaults.elevation(
                                 defaultElevation = 0.dp,
                                 pressedElevation = 0.dp,
@@ -659,6 +674,8 @@ fun HistoryScreen(
                                             viewModel = viewModel,
                                             parentScope = coroutineScope,
                                             snackbarHostState = snackbarHostState,
+                                            swipeState = swipeState,
+                                            orderedNoteIds = orderedNoteIds,
                                             onSelect = { 
                                                 if (selectionMode) { 
                                                     selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
@@ -686,6 +703,8 @@ fun HistoryScreen(
                                             viewModel = viewModel,
                                             parentScope = coroutineScope,
                                             snackbarHostState = snackbarHostState,
+                                            swipeState = swipeState,
+                                            orderedNoteIds = orderedNoteIds,
                                             onSelect = { 
                                                 if (selectionMode) { 
                                                     selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
@@ -919,6 +938,9 @@ fun HistoryScreen(
     }
 }
 
+// ============================================================
+// DismissibleNoteCard con Magnetic Swipe
+// ============================================================
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun DismissibleNoteCard(
@@ -932,6 +954,8 @@ fun DismissibleNoteCard(
     viewModel: HistoryViewModel,
     parentScope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
+    swipeState: MagneticSwipeState,
+    orderedNoteIds: List<Int>,
     onSelect: () -> Unit,
     onLongSelect: () -> Unit
 ) {
@@ -939,21 +963,52 @@ fun DismissibleNoteCard(
     val maxOffsetPx = with(density) { 380.dp.toPx() }
     val thresholdPx = with(density) { 110.dp.toPx() }
 
-    var offsetX by remember { mutableFloatStateOf(0f) }
+    var localOffsetX by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
 
-    val dragProgress = (abs(offsetX) / thresholdPx).coerceIn(0f, 1f)
+    val isActive = swipeState.activeId == note.id
+
+    // Distancia en el listado global para calcular el factor de arrastre magnético.
+    val myIndex = remember(orderedNoteIds, note.id) { orderedNoteIds.indexOf(note.id) }
+    val activeIndex = remember(orderedNoteIds, swipeState.activeId) {
+        swipeState.activeId?.let { orderedNoteIds.indexOf(it) } ?: -1
+    }
+    val distance = if (myIndex == -1 || activeIndex == -1) 0 else abs(myIndex - activeIndex)
+
+    // Magnetic decay: la nota activa usa su offset directo; las vecinas
+    // reciben un porcentaje decreciente con la distancia al cuadrado.
+    // 0.30f hace que el vecino inmediato se sienta claramente.
+    val neighborFactor = when {
+        isActive -> 1f
+        distance == 0 -> 0f
+        else -> (1f / (distance.toFloat() * distance.toFloat())) * 0.30f
+    }
+
+    // Offset objetivo para las notas NO activas (las activas usan localOffsetX directo).
+    val neighborTarget = swipeState.dragX * neighborFactor
+    val animatedNeighborOffset by animateFloatAsState(
+        targetValue = neighborTarget,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "neighborOffset"
+    )
+
+    val displayOffset = if (isActive) localOffsetX else animatedNeighborOffset
+
+    val dragProgress = (abs(displayOffset) / thresholdPx).coerceIn(0f, 1f)
     val deleteColor by animateColorAsState(
-        targetValue = if (dragProgress > 0f)
+        targetValue = if (dragProgress > 0f && isActive)
             MaterialTheme.colorScheme.errorContainer.copy(alpha = dragProgress)
         else Color.Transparent,
         label = "deleteColor"
     )
     val iconScale = 0.65f + 0.35f * dragProgress
-    val alignment = if (offsetX > 0) Alignment.CenterStart else Alignment.CenterEnd
+    val alignment = if (displayOffset > 0) Alignment.CenterStart else Alignment.CenterEnd
 
     Box(modifier = modifier.fillMaxWidth()) {
-        // Fondo de borrar
+        // Fondo de borrar (solo se pinta para la nota activa)
         Box(
             Modifier
                 .fillMaxSize()
@@ -961,7 +1016,7 @@ fun DismissibleNoteCard(
                 .padding(horizontal = 24.dp),
             contentAlignment = alignment
         ) {
-            if (dragProgress > 0.05f) {
+            if (dragProgress > 0.05f && isActive) {
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = "Delete",
@@ -971,35 +1026,48 @@ fun DismissibleNoteCard(
             }
         }
 
-        // Tarjeta con drag
         with(sharedTransitionScope) {
             Box(
                 modifier = Modifier
-                    .offset { IntOffset(offsetX.roundToInt(), 0) }
+                    .offset { IntOffset(displayOffset.roundToInt(), 0) }
                     .draggable(
                         orientation = Orientation.Horizontal,
                         enabled = !selectionMode,
                         state = rememberDraggableState { delta ->
-                            val progress = (abs(offsetX) / maxOffsetPx).coerceIn(0f, 1f)
+                            if (swipeState.activeId != note.id) {
+                                swipeState.activeId = note.id
+                            }
+                            val progress = (abs(localOffsetX) / maxOffsetPx).coerceIn(0f, 1f)
                             // Fricción estilo Pixel: la resistencia crece cuadráticamente
                             // con la distancia, así el dedo siente que jala un elástico.
                             val resistance = 1f - progress * progress * 0.85f
-                            offsetX = (offsetX + delta * resistance)
+                            localOffsetX = (localOffsetX + delta * resistance)
                                 .coerceIn(-maxOffsetPx, maxOffsetPx)
+                            // Propagar al resto de las tarjetas.
+                            swipeState.dragX = localOffsetX
                         },
                         onDragStopped = { velocity ->
-                            val shouldDismiss = abs(offsetX) > thresholdPx || abs(velocity) > 800f
+                            val currentOffset = localOffsetX
+                            val shouldDismiss = abs(currentOffset) > thresholdPx || abs(velocity) > 800f
                             if (shouldDismiss) {
-                                val target = if (offsetX > 0) maxOffsetPx * 1.6f else -maxOffsetPx * 1.6f
+                                val target = if (currentOffset > 0) maxOffsetPx * 1.6f else -maxOffsetPx * 1.6f
                                 scope.launch {
                                     animate(
-                                        initialValue = offsetX,
+                                        initialValue = currentOffset,
                                         targetValue = target,
                                         animationSpec = spring(
                                             dampingRatio = 0.70f,
                                             stiffness = Spring.StiffnessMedium
                                         )
-                                    ) { value, _ -> offsetX = value }
+                                    ) { value, _ -> 
+                                        localOffsetX = value
+                                        swipeState.dragX = value
+                                    }
+
+                                    // Liberar a las vecinas: activeId = null hace que
+                                    // el target del factor sea 0 y reboten de vuelta.
+                                    swipeState.activeId = null
+                                    swipeState.dragX = 0f
 
                                     viewModel.deleteMultiple(setOf(note.id))
                                     parentScope.launch {
@@ -1016,16 +1084,21 @@ fun DismissibleNoteCard(
                                     }
                                 }
                             } else {
-                                // Rebote elástico de vuelta al centro
+                                // Rebote elástico de vuelta al centro + liberar vecinas.
                                 scope.launch {
                                     animate(
-                                        initialValue = offsetX,
+                                        initialValue = currentOffset,
                                         targetValue = 0f,
                                         animationSpec = spring(
                                             dampingRatio = 0.30f,
                                             stiffness = Spring.StiffnessMediumLow
                                         )
-                                    ) { value, _ -> offsetX = value }
+                                    ) { value, _ -> 
+                                        localOffsetX = value
+                                        swipeState.dragX = value
+                                    }
+                                    swipeState.activeId = null
+                                    swipeState.dragX = 0f
                                 }
                             }
                         }

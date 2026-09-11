@@ -50,6 +50,7 @@ import retrofit2.HttpException
 import java.net.UnknownHostException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
+import androidx.compose.material3.ContainedLoadingIndicator
 
 enum class KeyVerificationState {
     IDLE, LOADING, SUCCESS, ERROR
@@ -413,9 +414,10 @@ fun OnboardingScreen(
                                         verticalArrangement = Arrangement.Center,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        LoadingIndicator(
-                                            modifier = Modifier.size(72.dp),
-                                            color = MaterialTheme.colorScheme.primary
+                                        ContainedLoadingIndicator(
+                                            modifier = Modifier.size(96.dp),
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            indicatorColor = MaterialTheme.colorScheme.primary
                                         )
                                         Spacer(modifier = Modifier.height(32.dp))
                                         Text(

@@ -87,21 +87,17 @@ private fun BouncyButton(
     LaunchedEffect(pressed) {
         if (pressed) {
             scaleAnim.animateTo(
-                0.86f,
-                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+                0.85f,
+                spring(dampingRatio = 0.62f, stiffness = 1800f)
             )
         } else {
-            // Si el usuario soltó antes de que la escala bajara, forzamos un mini-squish
-            // para que el bounce SIEMPRE se vea, aunque el tap haya sido instantáneo.
-            if (scaleAnim.value > 0.93f) {
-                scaleAnim.animateTo(
-                    0.90f,
-                    spring(dampingRatio = 0.5f, stiffness = 2500f)
-                )
+            // Tap rápido: si nunca bajó de 0.96, forzamos un squish visible.
+            if (scaleAnim.value > 0.96f) {
+                scaleAnim.snapTo(0.92f)
             }
             scaleAnim.animateTo(
                 1f,
-                spring(dampingRatio = 0.30f, stiffness = 400f)
+                spring(dampingRatio = 0.38f, stiffness = 550f)
             )
         }
     }
@@ -132,18 +128,15 @@ private fun BouncyOutlinedButton(
         if (pressed) {
             scaleAnim.animateTo(
                 0.88f,
-                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+                spring(dampingRatio = 0.62f, stiffness = 1800f)
             )
         } else {
-            if (scaleAnim.value > 0.94f) {
-                scaleAnim.animateTo(
-                    0.92f,
-                    spring(dampingRatio = 0.5f, stiffness = 2500f)
-                )
+            if (scaleAnim.value > 0.96f) {
+                scaleAnim.snapTo(0.94f)
             }
             scaleAnim.animateTo(
                 1f,
-                spring(dampingRatio = 0.30f, stiffness = 400f)
+                spring(dampingRatio = 0.38f, stiffness = 550f)
             )
         }
     }
