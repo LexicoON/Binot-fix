@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -56,7 +57,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,18 +82,37 @@ private fun BouncyButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.88f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "bouncyScale"
-    )
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            scaleAnim.animateTo(
+                0.86f,
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+            )
+        } else {
+            // Si el usuario soltó antes de que la escala bajara, forzamos un mini-squish
+            // para que el bounce SIEMPRE se vea, aunque el tap haya sido instantáneo.
+            if (scaleAnim.value > 0.93f) {
+                scaleAnim.animateTo(
+                    0.90f,
+                    spring(dampingRatio = 0.5f, stiffness = 2500f)
+                )
+            }
+            scaleAnim.animateTo(
+                1f,
+                spring(dampingRatio = 0.30f, stiffness = 400f)
+            )
+        }
+    }
+
     Button(
         onClick = onClick,
         enabled = enabled,
         shapes = ButtonDefaults.shapes(),
         colors = colors,
         interactionSource = interactionSource,
-        modifier = modifier.scale(scale),
+        modifier = modifier.scale(scaleAnim.value),
         content = content
     )
 }
@@ -104,17 +126,34 @@ private fun BouncyOutlinedButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.90f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "bouncyOutlinedScale"
-    )
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            scaleAnim.animateTo(
+                0.88f,
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+            )
+        } else {
+            if (scaleAnim.value > 0.94f) {
+                scaleAnim.animateTo(
+                    0.92f,
+                    spring(dampingRatio = 0.5f, stiffness = 2500f)
+                )
+            }
+            scaleAnim.animateTo(
+                1f,
+                spring(dampingRatio = 0.30f, stiffness = 400f)
+            )
+        }
+    }
+
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
         shapes = ButtonDefaults.shapes(),
         interactionSource = interactionSource,
-        modifier = modifier.scale(scale),
+        modifier = modifier.scale(scaleAnim.value),
         content = content
     )
 }
@@ -127,20 +166,35 @@ private fun ExpressiveToggleGroup(
     icons: List<ImageVector>,
     modifier: Modifier = Modifier
 ) {
+    val haptics = LocalHapticFeedback.current
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
     ) {
         labels.forEachIndexed { index, label ->
+            val isSelected = selectedIndex == index
+            val iconScale by animateFloatAsState(
+                targetValue = if (isSelected) 1.18f else 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                ),
+                label = "toggleScale_$index"
+            )
             ToggleButton(
-                checked = selectedIndex == index,
-                onCheckedChange = { onSelect(index) },
+                checked = isSelected,
+                onCheckedChange = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onSelect(index)
+                },
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
-                    imageVector = if (selectedIndex == index) Icons.Default.Check else icons[index],
+                    imageVector = if (isSelected) Icons.Default.Check else icons[index],
                     contentDescription = label,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier
+                        .size(18.dp)
+                        .scale(iconScale)
                 )
             }
         }

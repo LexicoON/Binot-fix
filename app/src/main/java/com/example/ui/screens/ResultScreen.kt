@@ -13,6 +13,7 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -1484,14 +1485,32 @@ private fun BouncyCapsule(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label = "capsuleScale"
-    )
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(isPressed) {
+        if (isPressed) {
+            scaleAnim.animateTo(
+                0.88f,
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+            )
+        } else {
+            // Mini-squish forzado para que el bounce se vea aunque el tap sea instantáneo.
+            if (scaleAnim.value > 0.94f) {
+                scaleAnim.animateTo(
+                    0.92f,
+                    spring(dampingRatio = 0.5f, stiffness = 2500f)
+                )
+            }
+            scaleAnim.animateTo(
+                1f,
+                spring(dampingRatio = 0.30f, stiffness = 400f)
+            )
+        }
+    }
+
     Box(
         modifier = modifier
-            .scale(scale)
+            .scale(scaleAnim.value)
             .height(48.dp)
             .clip(CircleShape)
             .background(containerColor)

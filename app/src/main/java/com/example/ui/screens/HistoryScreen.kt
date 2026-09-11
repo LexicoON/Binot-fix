@@ -14,7 +14,9 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -32,6 +34,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -74,6 +81,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -82,6 +90,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -90,6 +99,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -101,6 +111,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -522,11 +534,30 @@ fun HistoryScreen(
                             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                             label = "fabCorner"
                         )
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val pressed by interactionSource.collectIsPressedAsState()
+                        val fabScale by animateFloatAsState(
+                            targetValue = if (pressed) 0.90f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "fabScale"
+                        )
+
                         FloatingActionButton(
                             onClick = { importLauncher.launch(arrayOf("*/*")) },
                             shape = RoundedCornerShape(corner),
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            // Sombra apagada: acá estaba el glitch visual al scrollear.
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 0.dp,
+                                pressedElevation = 0.dp,
+                                focusedElevation = 0.dp,
+                                hoveredElevation = 0.dp
+                            ),
+                            interactionSource = interactionSource,
                             modifier = Modifier
                                 .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
                                 .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
@@ -541,6 +572,7 @@ fun HistoryScreen(
                                         )
                                     }
                                 )
+                                .scale(fabScale)
                                 .animateContentSize(
                                     animationSpec = spring(
                                         dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -898,73 +930,122 @@ fun DismissibleNoteCard(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     viewModel: HistoryViewModel,
-    parentScope: CoroutineScope, 
+    parentScope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
     onSelect: () -> Unit,
     onLongSelect: () -> Unit
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart || dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                viewModel.deleteMultiple(setOf(note.id))
-                parentScope.launch {
-                    val result = snackbarHostState.showSnackbar(
-                        message = "Note moved to Trash",
-                        actionLabel = "Undo",
-                        duration = SnackbarDuration.Short
-                    )
-                    if (result == SnackbarResult.ActionPerformed) {
-                        viewModel.undoDelete()
-                    } else {
-                        viewModel.clearRecentlyDeleted()
-                    }
-                }
-                false
-            } else {
-                false
+    val density = LocalDensity.current
+    val maxOffsetPx = with(density) { 380.dp.toPx() }
+    val thresholdPx = with(density) { 110.dp.toPx() }
+
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    val scope = rememberCoroutineScope()
+
+    val dragProgress = (abs(offsetX) / thresholdPx).coerceIn(0f, 1f)
+    val deleteColor by animateColorAsState(
+        targetValue = if (dragProgress > 0f)
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = dragProgress)
+        else Color.Transparent,
+        label = "deleteColor"
+    )
+    val iconScale = 0.65f + 0.35f * dragProgress
+    val alignment = if (offsetX > 0) Alignment.CenterStart else Alignment.CenterEnd
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        // Fondo de borrar
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(deleteColor, RoundedCornerShape(16.dp))
+                .padding(horizontal = 24.dp),
+            contentAlignment = alignment
+        ) {
+            if (dragProgress > 0.05f) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.scale(iconScale)
+                )
             }
         }
-    )
 
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = !selectionMode,
-        enableDismissFromEndToStart = !selectionMode,
-        backgroundContent = {
-            val color by animateColorAsState(
-                targetValue = if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
-                label = "deleteColor"
-            )
-            val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(color, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 24.dp),
-                contentAlignment = alignment
-            ) {
-                if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
-                }
-            }
-        },
-        modifier = modifier
-    ) {
+        // Tarjeta con drag
         with(sharedTransitionScope) {
-            NoteCard(
-                note = note, 
-                isSelected = isSelected,
-                selectedLabels = selectedLabels,
-                modifier = Modifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState("note-${note.id}"),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
-                    boundsTransform = { _, _ -> tween(300) }
-                ),
-                onLongClick = onLongSelect,
-                onClick = onSelect,
-                onLabelClick = { label -> viewModel.toggleLabelFilter(label) }
-            )
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(offsetX.roundToInt(), 0) }
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        enabled = !selectionMode,
+                        state = rememberDraggableState { delta ->
+                            val progress = (abs(offsetX) / maxOffsetPx).coerceIn(0f, 1f)
+                            // Fricción estilo Pixel: la resistencia crece cuadráticamente
+                            // con la distancia, así el dedo siente que jala un elástico.
+                            val resistance = 1f - progress * progress * 0.85f
+                            offsetX = (offsetX + delta * resistance)
+                                .coerceIn(-maxOffsetPx, maxOffsetPx)
+                        },
+                        onDragStopped = { velocity ->
+                            val shouldDismiss = abs(offsetX) > thresholdPx || abs(velocity) > 800f
+                            if (shouldDismiss) {
+                                val target = if (offsetX > 0) maxOffsetPx * 1.6f else -maxOffsetPx * 1.6f
+                                scope.launch {
+                                    animate(
+                                        initialValue = offsetX,
+                                        targetValue = target,
+                                        animationSpec = spring(
+                                            dampingRatio = 0.70f,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    ) { value, _ -> offsetX = value }
+
+                                    viewModel.deleteMultiple(setOf(note.id))
+                                    parentScope.launch {
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "Note moved to Trash",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            viewModel.undoDelete()
+                                        } else {
+                                            viewModel.clearRecentlyDeleted()
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Rebote elástico de vuelta al centro
+                                scope.launch {
+                                    animate(
+                                        initialValue = offsetX,
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = 0.30f,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    ) { value, _ -> offsetX = value }
+                                }
+                            }
+                        }
+                    )
+            ) {
+                NoteCard(
+                    note = note,
+                    isSelected = isSelected,
+                    selectedLabels = selectedLabels,
+                    modifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState("note-${note.id}"),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+                        boundsTransform = { _, _ -> tween(300) }
+                    ),
+                    onLongClick = onLongSelect,
+                    onClick = onSelect,
+                    onLabelClick = { label -> viewModel.toggleLabelFilter(label) }
+                )
+            }
         }
     }
 }

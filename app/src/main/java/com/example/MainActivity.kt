@@ -41,7 +41,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -123,6 +125,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
     val isDataLoaded by settingsViewModel.isDataLoaded.collectAsState()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     
     // State Tracker untuk "Open With" dari WA
     val incomingUri by mainActivity.incomingIntentUri.collectAsState()
@@ -165,31 +168,40 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                 ShortNavigationBar {
                     ShortNavigationBarItem(
                         selected = currentRoute == "record",
-                        onClick = { navController.navigate("record") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }},
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("record") {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
                         label = { Text("Record") }
                     )
                     ShortNavigationBarItem(
                         selected = currentRoute == "history",
-                        onClick = { navController.navigate("history") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }},
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("history") {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         icon = { Icon(Icons.Default.History, contentDescription = "History") },
                         label = { Text("History") }
                     )
                     ShortNavigationBarItem(
                         selected = currentRoute == "settings",
-                        onClick = { navController.navigate("settings") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }},
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("settings") {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                         label = { Text("Settings") }
                     )
