@@ -23,10 +23,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.WideNavigationBar
-import androidx.compose.material3.WideNavigationBarItem
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
@@ -161,11 +159,11 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             if (currentRoute in listOf("record", "history", "settings")) {
-                // M3 Expressive: WideNavigationBar collapses unselected items to
-                // icon-only pills and expands the selected one to icon + label,
-                // morphing with the motionScheme's spring (the "squish" feel).
-                WideNavigationBar {
-                    WideNavigationBarItem(
+                // M3 Expressive: ShortNavigationBar replaces the baseline NavigationBar
+                // for compact (phone) screens. It uses the expressive motion scheme to
+                // morph the selected pill indicator with spring physics.
+                ShortNavigationBar {
+                    ShortNavigationBarItem(
                         selected = currentRoute == "record",
                         onClick = { navController.navigate("record") {
                             popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -175,7 +173,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
                         label = { Text("Record") }
                     )
-                    WideNavigationBarItem(
+                    ShortNavigationBarItem(
                         selected = currentRoute == "history",
                         onClick = { navController.navigate("history") {
                             popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -185,7 +183,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         icon = { Icon(Icons.Default.History, contentDescription = "History") },
                         label = { Text("History") }
                     )
-                    WideNavigationBarItem(
+                    ShortNavigationBarItem(
                         selected = currentRoute == "settings",
                         onClick = { navController.navigate("settings") {
                             popUpTo(navController.graph.startDestinationId) { saveState = true }

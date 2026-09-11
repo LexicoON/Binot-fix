@@ -439,24 +439,39 @@ fun SettingsScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                                 onClick = { tempAiTask = 0 },
                                 selected = tempAiTask == 0,
-                                icon = { Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiTask == 0) Icons.Default.Check else Icons.Default.AutoFixHigh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Tidy Up", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                                 onClick = { tempAiTask = 1 },
                                 selected = tempAiTask == 1,
-                                icon = { Icon(Icons.Default.Summarize, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiTask == 1) Icons.Default.Check else Icons.Default.Summarize,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Summary", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                                 onClick = { tempAiTask = 2 },
                                 selected = tempAiTask == 2,
-                                icon = { Icon(Icons.Default.Insights, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiTask == 2) Icons.Default.Check else Icons.Default.Insights,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Analyze", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
                         }
@@ -482,16 +497,26 @@ fun SettingsScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                                 onClick = { tempAiFormat = 0 },
                                 selected = tempAiFormat == 0,
-                                icon = { Icon(Icons.Default.Notes, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiFormat == 0) Icons.Default.Check else Icons.Default.Notes,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Paragraphs") }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                                 onClick = { tempAiFormat = 1 },
                                 selected = tempAiFormat == 1,
-                                icon = { Icon(Icons.Default.FormatListBulleted, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiFormat == 1) Icons.Default.Check else Icons.Default.FormatListBulleted,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Bullets") }
                             )
                         }
@@ -533,24 +558,39 @@ fun SettingsScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                                 onClick = { tempAiProvider = 0 },
                                 selected = tempAiProvider == 0,
-                                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiProvider == 0) Icons.Default.Check else Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Gemini", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                                 onClick = { tempAiProvider = 1 },
                                 selected = tempAiProvider == 1,
-                                icon = { Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiProvider == 1) Icons.Default.Check else Icons.Default.Bolt,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Groq", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                                 onClick = { tempAiProvider = 2 },
                                 selected = tempAiProvider == 2,
-                                icon = { Icon(Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (tempAiProvider == 2) Icons.Default.Check else Icons.Default.Shuffle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Mix (Beta)", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
                         }
@@ -705,8 +745,13 @@ fun SettingsScreen(
                                     }
                                 },
                                 selected = recordMode == 0,
-                                icon = { Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (recordMode == 0) Icons.Default.Check else Icons.Default.FlashOn,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Fast") }
                             )
                             SegmentedButton(
@@ -722,8 +767,13 @@ fun SettingsScreen(
                                     }
                                 },
                                 selected = recordMode == 1,
-                                icon = { Icon(Icons.Default.GraphicEq, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (recordMode == 1) Icons.Default.Check else Icons.Default.GraphicEq,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
                                 label = { Text("Accurate") }
                             )
                         }
@@ -782,32 +832,52 @@ fun SettingsScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 4),
                                 onClick = { viewModel.saveThemeMode(0) },
                                 selected = themeMode == 0,
-                                icon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (themeMode == 0) Icons.Default.Check else Icons.Default.PhoneAndroid,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
                                 label = { Text("Auto") }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 4),
                                 onClick = { viewModel.saveThemeMode(1) },
                                 selected = themeMode == 1,
-                                icon = { Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (themeMode == 1) Icons.Default.Check else Icons.Default.LightMode,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
                                 label = { Text("Light") }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 4),
                                 onClick = { viewModel.saveThemeMode(2) },
                                 selected = themeMode == 2,
-                                icon = { Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (themeMode == 2) Icons.Default.Check else Icons.Default.DarkMode,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
                                 label = { Text("Dark") }
                             )
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 3, count = 4),
                                 onClick = { viewModel.saveThemeMode(3) },
                                 selected = themeMode == 3,
-                                icon = { Icon(Icons.Default.Contrast, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                selectedIcon = { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                icon = {
+                                    Icon(
+                                        if (themeMode == 3) Icons.Default.Check else Icons.Default.Contrast,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
                                 label = { Text("Amoled", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp) }
                             )
                         }
