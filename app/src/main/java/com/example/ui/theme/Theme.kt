@@ -2,7 +2,8 @@ package com.example.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -61,6 +62,7 @@ private val AmoledDarkColorScheme = SlateDarkColorScheme.copy(
     surfaceVariant = Color(0xFF111414)
 )
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun BinotTheme(
     themeMode: Int, // 0 = System, 1 = Light, 2 = Slate Dark, 3 = Amoled Dark
@@ -95,7 +97,7 @@ fun BinotTheme(
         colorScheme
     }
 
-    MaterialTheme(
+    MaterialExpressiveTheme(
         colorScheme = finalColorScheme,
         typography = Typography,
         shapes = ExpressiveShapes,

@@ -101,7 +101,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HistoryScreen(
     viewModel: HistoryViewModel,
@@ -259,7 +259,10 @@ fun HistoryScreen(
                     Spacer(Modifier.height(24.dp))
                     Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
 
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+                    ) {
                         data class SortOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val description: String)
                         val sortOptions = listOf(
                             SortOption(androidx.compose.material.icons.Icons.Default.AccessTime, "Newest"),
@@ -267,10 +270,10 @@ fun HistoryScreen(
                             SortOption(androidx.compose.material.icons.Icons.AutoMirrored.Default.Sort, "A–Z")
                         )
                         sortOptions.forEachIndexed { index, option ->
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = index, count = sortOptions.size),
-                                onClick = { viewModel.setSortMode(index) },
-                                selected = sortMode == index
+                            ToggleButton(
+                                checked = sortMode == index,
+                                onCheckedChange = { viewModel.setSortMode(index) },
+                                modifier = Modifier.weight(1f)
                             ) { Icon(option.icon, contentDescription = option.description, modifier = Modifier.size(18.dp)) }
                         }
                     }

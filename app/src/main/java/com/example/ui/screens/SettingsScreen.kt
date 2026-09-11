@@ -60,18 +60,14 @@ private fun BouncyButton(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label = "buttonBounce"
-    )
+    // M3 Expressive gives this press feedback natively via shape morphing
+    // (round -> squircle on press), driven by MaterialTheme.motionScheme,
+    // so the manual scale/interactionSource bounce hack is no longer needed.
     Button(
         onClick = onClick,
         enabled = enabled,
-        interactionSource = interactionSource,
-        modifier = modifier.scale(scale),
+        shapes = ButtonDefaults.shapes(),
+        modifier = modifier,
         content = content
     )
 }
@@ -83,18 +79,11 @@ private fun BouncyOutlinedButton(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label = "outlinedButtonBounce"
-    )
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        interactionSource = interactionSource,
-        modifier = modifier.scale(scale),
+        shapes = ButtonDefaults.shapes(),
+        modifier = modifier,
         content = content
     )
 }
@@ -719,7 +708,16 @@ fun SettingsScreen(
                                     if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                         notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                                     }
-                                }
+                                },
+                                thumbContent = if (backgroundRecordingEnabled) {
+                                    {
+                                        Icon(
+                                            imageVector = Icons.Filled.CheckCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(SwitchDefaults.IconSize)
+                                        )
+                                    }
+                                } else null
                             )
                         }
                     }
