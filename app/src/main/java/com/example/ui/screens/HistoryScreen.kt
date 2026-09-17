@@ -112,8 +112,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties                                   // FIX 4: import agregado para desambiguar DropdownMenu
 import com.example.data.LabelEntity
 import com.example.data.NoteEntity
+import com.example.ui.components.BouncyButton                                       // FIX 4: import agregado para resolver a la versión pública
 import com.example.ui.components.BouncyIconButton
 import com.example.ui.components.MarkdownText
 import com.example.ui.components.bouncyClickable
@@ -473,18 +475,15 @@ fun HistoryScreen(
                                     Icon(Icons.Default.MoreVert, contentDescription = "Options")
                                 }
 
-                                // CAMBIO: DropdownMenu con modifier explícito para forzar la
-                                // resolución a la sobrecarga estándar de material3, evitando
-                                // que el compilador elija la variante expresiva que exige
-                                // 'overflowIndicator'.
+                                // FIX 4: scrollState + properties son parámetros que SOLO existen
+                                // en la sobrecarga estándar de DropdownMenu. Al pasarlos, el compilador
+                                // ya no puede elegir la sobrecarga expresiva (que exige 'overflowIndicator').
                                 DropdownMenu(
                                     expanded = showSelectionMenu,
                                     onDismissRequest = { showSelectionMenu = false },
-                                    modifier = Modifier
+                                    scrollState = rememberScrollState(),
+                                    properties = PopupProperties(focusable = true)
                                 ) {
-                                    // CAMBIO: trailingIcon explícito fuerza la sobrecarga
-                                    // estándar de DropdownMenuItem que acepta modifier y
-                                    // interactionSource (la expresiva exige 'label' trailing).
                                     DropdownMenuItem(
                                         text = { Text("Select All") },
                                         leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
@@ -904,10 +903,12 @@ fun HistoryScreen(
                     onClick = {
                         val oldLabel = labelBeingManaged
                         if (oldLabel != null) {
+                            // Aplicar rename si cambió
                             if (renameLabelInput.isNotBlank() && renameLabelInput.trim() != oldLabel) {
                                 viewModel.renameLabel(oldLabel, renameLabelInput.trim())
                                 viewModel.setLabelColor(renameLabelInput.trim(), renameLabelColor)
                             } else {
+                                // Solo color
                                 viewModel.setLabelColor(oldLabel, renameLabelColor)
                             }
                         }
