@@ -112,10 +112,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.PopupProperties                                   // FIX 4: import agregado para desambiguar DropdownMenu
 import com.example.data.LabelEntity
 import com.example.data.NoteEntity
-import com.example.ui.components.BouncyButton                                       // FIX 4: import agregado para resolver a la versión pública
+import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyIconButton
 import com.example.ui.components.MarkdownText
 import com.example.ui.components.bouncyClickable
@@ -475,91 +474,61 @@ fun HistoryScreen(
                                     Icon(Icons.Default.MoreVert, contentDescription = "Options")
                                 }
 
-                                // FIX 4: scrollState + properties son parámetros que SOLO existen
-                                // en la sobrecarga estándar de DropdownMenu. Al pasarlos, el compilador
-                                // ya no puede elegir la sobrecarga expresiva (que exige 'overflowIndicator').
-                                DropdownMenu(
+                                // FIX 5: el menú vive en SelectionDropdownMenu,
+                                // fuera del scope de este composable, así que no hereda
+                                // el @OptIn(ExperimentalMaterial3ExpressiveApi) que
+                                // traía las sobrecargas expresivas que exigían
+                                // 'overflowIndicator' y 'label'.
+                                SelectionDropdownMenu(
                                     expanded = showSelectionMenu,
                                     onDismissRequest = { showSelectionMenu = false },
-                                    scrollState = rememberScrollState(),
-                                    properties = PopupProperties(focusable = true)
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Select All") },
-                                        leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
-                                        trailingIcon = null,
-                                        onClick = {
-                                            selectedNotes = notes.map { it.id }.toSet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(if (isAllPinned) "Unpin" else "Pin") },
-                                        leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
-                                        trailingIcon = null,
-                                        onClick = {
-                                            viewModel.togglePinMultiple(selectedNotes, !isAllPinned)
-                                            selectionMode = false
-                                            selectedNotes = emptySet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Clone") },
-                                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                                        trailingIcon = null,
-                                        onClick = {
-                                            viewModel.cloneMultiple(selectedNotes)
-                                            selectionMode = false
-                                            selectedNotes = emptySet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-
-                                    if (selectedNotes.size == 1) {
-                                        DropdownMenuItem(
-                                            text = { Text("Share") },
-                                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                                            trailingIcon = null,
-                                            onClick = {
-                                                val noteId = selectedNotes.first()
-                                                val noteToShare = notes.find { it.id == noteId }
-
-                                                if (noteToShare != null) {
-                                                    coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar("Generating .binot file...")
-                                                        val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
-                                                        if (uri != null) {
-                                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "application/zip"
-                                                                putExtra(Intent.EXTRA_STREAM, uri)
-                                                                putExtra(Intent.EXTRA_TEXT, "Binot Note: ${noteToShare.title}")
-                                                                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                            }
-                                                            context.startActivity(Intent.createChooser(sendIntent, "Share .binot note via"))
-                                                        } else {
-                                                            snackbarHostState.showSnackbar("Failed to generate file.")
-                                                        }
+                                    isAllPinned = isAllPinned,
+                                    selectedCount = selectedNotes.size,
+                                    onSelectAll = {
+                                        selectedNotes = notes.map { it.id }.toSet()
+                                        showSelectionMenu = false
+                                    },
+                                    onTogglePin = {
+                                        viewModel.togglePinMultiple(selectedNotes, !isAllPinned)
+                                        selectionMode = false
+                                        selectedNotes = emptySet()
+                                        showSelectionMenu = false
+                                    },
+                                    onClone = {
+                                        viewModel.cloneMultiple(selectedNotes)
+                                        selectionMode = false
+                                        selectedNotes = emptySet()
+                                        showSelectionMenu = false
+                                    },
+                                    onShare = {
+                                        val noteId = selectedNotes.firstOrNull()
+                                        val noteToShare = noteId?.let { id -> notes.find { it.id == id } }
+                                        if (noteToShare != null) {
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Generating .binot file...")
+                                                val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
+                                                if (uri != null) {
+                                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "application/zip"
+                                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                                        putExtra(Intent.EXTRA_TEXT, "Binot Note: ${noteToShare.title}")
+                                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                                                     }
+                                                    context.startActivity(Intent.createChooser(sendIntent, "Share .binot note via"))
+                                                } else {
+                                                    snackbarHostState.showSnackbar("Failed to generate file.")
                                                 }
-
-                                                selectionMode = false
-                                                selectedNotes = emptySet()
-                                                showSelectionMenu = false
                                             }
-                                        )
-                                    }
-
-                                    DropdownMenuItem(
-                                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                                        trailingIcon = null,
-                                        onClick = {
-                                            showDeleteDialog = true
-                                            showSelectionMenu = false
                                         }
-                                    )
-                                }
+                                        selectionMode = false
+                                        selectedNotes = emptySet()
+                                        showSelectionMenu = false
+                                    },
+                                    onDelete = {
+                                        showDeleteDialog = true
+                                        showSelectionMenu = false
+                                    }
+                                )
                             },
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                         )
@@ -903,12 +872,10 @@ fun HistoryScreen(
                     onClick = {
                         val oldLabel = labelBeingManaged
                         if (oldLabel != null) {
-                            // Aplicar rename si cambió
                             if (renameLabelInput.isNotBlank() && renameLabelInput.trim() != oldLabel) {
                                 viewModel.renameLabel(oldLabel, renameLabelInput.trim())
                                 viewModel.setLabelColor(renameLabelInput.trim(), renameLabelColor)
                             } else {
-                                // Solo color
                                 viewModel.setLabelColor(oldLabel, renameLabelColor)
                             }
                         }
@@ -1022,6 +989,59 @@ fun HistoryScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
+    }
+}
+
+// ============================================================
+// Selection menu — extraído para que NO herede el opt-in
+// ExperimentalMaterial3ExpressiveApi del HistoryScreen, así el
+// compilador resuelve a la sobrecarga estándar de DropdownMenu
+// y DropdownMenuItem (las expresivas exigen 'overflowIndicator'
+// y 'label' respectivamente y estaban ganando la resolución).
+// ============================================================
+@Composable
+private fun SelectionDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    isAllPinned: Boolean,
+    selectedCount: Int,
+    onSelectAll: () -> Unit,
+    onTogglePin: () -> Unit,
+    onClone: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest
+    ) {
+        DropdownMenuItem(
+            text = { Text("Select All") },
+            leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
+            onClick = onSelectAll
+        )
+        DropdownMenuItem(
+            text = { Text(if (isAllPinned) "Unpin" else "Pin") },
+            leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
+            onClick = onTogglePin
+        )
+        DropdownMenuItem(
+            text = { Text("Clone") },
+            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+            onClick = onClone
+        )
+        if (selectedCount == 1) {
+            DropdownMenuItem(
+                text = { Text("Share") },
+                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                onClick = onShare
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            onClick = onDelete
+        )
     }
 }
 
