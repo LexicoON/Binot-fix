@@ -6,6 +6,9 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -14,6 +17,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -21,17 +26,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -50,32 +60,130 @@ import retrofit2.HttpException
 import java.net.UnknownHostException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
-import androidx.compose.material3.ContainedLoadingIndicator
 
 enum class KeyVerificationState {
     IDLE, LOADING, SUCCESS, ERROR
 }
 
+// ============================================================
+// Bouncy helpers locales
+// ============================================================
+@Composable
+private fun BouncyButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    colors: ButtonColors = ButtonDefaults.buttonColors(),
+    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val scale = remember { Animatable(1f) }
+
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    scale.animateTo(
+                        0.94f,
+                        spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        )
+                    )
+                }
+                is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    scale.animateTo(
+                        1f,
+                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
+                    )
+                }
+            }
+        }
+    }
+
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        colors = colors,
+        shapes = ButtonDefaults.shapes(),
+        contentPadding = contentPadding,
+        interactionSource = interactionSource,
+        modifier = modifier.graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        },
+        content = content
+    )
+}
+
+@Composable
+private fun BouncyOutlinedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val scale = remember { Animatable(1f) }
+
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    scale.animateTo(
+                        0.96f,
+                        spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        )
+                    )
+                }
+                is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    scale.animateTo(
+                        1f,
+                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
+                    )
+                }
+            }
+        }
+    }
+
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        shapes = ButtonDefaults.shapes(),
+        interactionSource = interactionSource,
+        modifier = modifier.graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        },
+        content = content
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingScreen(
-    onComplete: (String, Int, String, Int, Int) -> Unit // name, aiProvider, apiKey, aiTask, aiFormat
+    onComplete: (name: String, provider: Int, key: String, task: Int, format: Int, autoCompression: Int) -> Unit
 ) {
-    val pagerState = rememberPagerState(pageCount = { 5 })
+    val pagerState = rememberPagerState(pageCount = { 6 })
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
 
     var nameInput by remember { mutableStateOf("") }
     var apiKeyInput by remember { mutableStateOf("") }
-    var aiProvider by remember { mutableStateOf(1) } // Default to Groq (1)
-    
-    var aiTask by remember { mutableStateOf(0) } 
-    var aiFormat by remember { mutableStateOf(0) } 
+    var aiProvider by remember { mutableStateOf(1) } // Default to Groq
+
+    var aiTask by remember { mutableStateOf(0) }
+    var aiFormat by remember { mutableStateOf(0) }
+    var autoCompression by remember { mutableStateOf(1) } // Default: Balanced
 
     var keyState by remember { mutableStateOf(KeyVerificationState.IDLE) }
     var keyErrorMessage by remember { mutableStateOf("") }
 
-    val isFinalPage = pagerState.currentPage == 4
+    val isFinalPage = pagerState.currentPage == 5
 
     Scaffold(
         bottomBar = {
@@ -92,45 +200,47 @@ fun OnboardingScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        repeat(4) { index ->
+                        repeat(5) { index ->
                             Box(
                                 modifier = Modifier
                                     .size(10.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        if (pagerState.currentPage == index) MaterialTheme.colorScheme.primary 
+                                        if (pagerState.currentPage == index) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.surfaceVariant
                                     )
                             )
                         }
                     }
 
-                    Button(
+                    BouncyButton(
                         onClick = {
-                            if (pagerState.currentPage < 3) {
+                            if (pagerState.currentPage < 4) {
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(pagerState.currentPage + 1)
                                 }
-                            } else if (pagerState.currentPage == 3) {
-                                if (apiKeyInput.isBlank()) return@Button
-                                
+                            } else if (pagerState.currentPage == 4) {
+                                if (apiKeyInput.isBlank()) return@BouncyButton
+
                                 coroutineScope.launch {
-                                    pagerState.animateScrollToPage(4)
+                                    pagerState.animateScrollToPage(5)
                                     keyState = KeyVerificationState.LOADING
-                                    
+
                                     try {
-                                        // LOGIKA PEMBERSIH AMAN: Hanya membunuh prefix 'Bearer ' dan spasi nyasar.
-                                        // Tidak akan menghancurkan karakter khusus (- _ . +) yang asli bawaan kunci API lu.
                                         val cleanKey = apiKeyInput
                                             .replace(Regex("(?i)^bearer\\s*"), "")
                                             .replace(" ", "")
                                             .trim()
-                                        
+
                                         if (aiProvider == 0) {
                                             val req = GenerateContentRequest(
                                                 contents = listOf(Content(parts = listOf(Part(text = "hi"))))
                                             )
-                                            RetrofitClient.service.generateContent(cleanKey, req)
+                                            RetrofitClient.service.generateContent(
+                                                model = "gemini-3.5-flash-lite",
+                                                apiKey = cleanKey,
+                                                request = req
+                                            )
                                         } else {
                                             val req = GroqChatRequest(
                                                 model = "llama-3.1-8b-instant",
@@ -138,27 +248,26 @@ fun OnboardingScreen(
                                             )
                                             RetrofitClient.groqService.generateContent("Bearer $cleanKey", req)
                                         }
-                                        
+
                                         delay(800)
                                         keyState = KeyVerificationState.SUCCESS
-                                        
+
                                     } catch (e: Exception) {
                                         delay(800)
-                                        
-                                        // SMART BYPASS untuk Groq
+
                                         if (e is HttpException && aiProvider == 1 && (e.code() == 400 || e.code() == 404 || e.code() == 422)) {
                                             keyState = KeyVerificationState.SUCCESS
                                         } else {
                                             keyState = KeyVerificationState.ERROR
                                             keyErrorMessage = when (e) {
                                                 is HttpException -> when (e.code()) {
-                                                    400 -> if (aiProvider == 0) "Invalid API Key. Google rejected it. Please ensure no characters are missing." else "Server rejected the test. Check your key."
-                                                    401 -> "The key is invalid or unauthorized. Please ensure there are no missing characters."
+                                                    400 -> if (aiProvider == 0) "Invalid API Key. Google rejected it." else "Server rejected the test. Check your key."
+                                                    401 -> "The key is invalid or unauthorized."
                                                     403 -> "Access denied. Your key might be restricted by the provider."
                                                     429 -> "Rate limit exceeded. The provider's server is busy."
                                                     else -> "Server rejected the test (Code: ${e.code()}). Check your key."
                                                 }
-                                                is UnknownHostException, is ConnectException, is SocketTimeoutException -> 
+                                                is UnknownHostException, is ConnectException, is SocketTimeoutException ->
                                                     "Network error. We couldn't reach the server."
                                                 else -> "Unexpected error: ${e.localizedMessage}"
                                             }
@@ -167,16 +276,15 @@ fun OnboardingScreen(
                                 }
                             }
                         },
-                        enabled = when(pagerState.currentPage) {
+                        enabled = when (pagerState.currentPage) {
                             1 -> nameInput.isNotBlank()
-                            3 -> apiKeyInput.isNotBlank()
+                            4 -> apiKeyInput.isNotBlank()
                             else -> true
                         },
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
-                        shape = RoundedCornerShape(16.dp)
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)
                     ) {
                         Text(
-                            text = if (pagerState.currentPage == 3) "Verify Key" else "Next",
+                            text = if (pagerState.currentPage == 4) "Verify Key" else "Next",
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -191,7 +299,7 @@ fun OnboardingScreen(
     ) { paddingValues ->
         val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
         val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
-        
+
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = false,
@@ -208,9 +316,10 @@ fun OnboardingScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 when (page) {
+                    // ---------- PAGE 0: Welcome ----------
                     0 -> {
                         Text(
-                            text = "Welcome to Binot.",
+                            text = "Welcome to Obinot.",
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.primary,
@@ -224,6 +333,8 @@ fun OnboardingScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+
+                    // ---------- PAGE 1: Name ----------
                     1 -> {
                         Text(
                             text = "Let's get acquainted.",
@@ -249,6 +360,8 @@ fun OnboardingScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+
+                    // ---------- PAGE 2: Task + Format ----------
                     2 -> {
                         Text(
                             text = "Tailor your experience.",
@@ -259,13 +372,13 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "How would you like Binot to process your voice by default? You can change this later.",
+                            text = "How would you like Obinot to process your voice by default? You can change this later.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(32.dp))
-                        
+
                         Text(
                             text = "Processing Task",
                             style = MaterialTheme.typography.labelLarge,
@@ -282,7 +395,7 @@ fun OnboardingScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                                 onClick = { aiTask = 1 },
                                 selected = aiTask == 1
-                             ) { Text("Summary", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            ) { Text("Summary", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                                 onClick = { aiTask = 2 },
@@ -309,8 +422,10 @@ fun OnboardingScreen(
                                 onClick = { aiFormat = 1 },
                                 selected = aiFormat == 1
                             ) { Text("Bullets") }
-                         }
+                        }
                     }
+
+                    // ---------- PAGE 3: Provider + API key ----------
                     3 -> {
                         Text(
                             text = "Connect the brain.",
@@ -321,13 +436,13 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Binot needs an AI engine to operate. Choose a provider and claim your free access key.",
+                            text = "Obinot needs an AI engine to operate. Choose a provider and claim your free access key.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(24.dp))
-                        
+
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
@@ -340,9 +455,9 @@ fun OnboardingScreen(
                                 selected = aiProvider == 1
                             ) { Text("Groq AI") }
                         }
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
-                        
+
                         AnimatedContent(targetState = aiProvider, label = "provider_info") { provider ->
                             if (provider == 1) {
                                 Text(
@@ -363,8 +478,8 @@ fun OnboardingScreen(
                         }
 
                         Spacer(modifier = Modifier.height(24.dp))
-                        
-                        Button(
+
+                        BouncyButton(
                             onClick = {
                                 val url = if (aiProvider == 0) "https://aistudio.google.com/app/apikey" else "https://console.groq.com/keys"
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -373,7 +488,6 @@ fun OnboardingScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -387,7 +501,7 @@ fun OnboardingScreen(
                                 fontSize = 16.sp
                             )
                         }
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
 
                         OutlinedTextField(
@@ -401,9 +515,86 @@ fun OnboardingScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+
+                    // ---------- PAGE 4: Auto Compression (NEW) ----------
                     4 -> {
+                        Text(
+                            text = "One last thing.",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Some AI providers have a size limit on audio uploads. Obinot can shrink long recordings automatically before sending them, so nothing gets rejected.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Auto Compression",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+                        ) {
+                            val labels = listOf("Off", "Balanced", "Max")
+                            labels.forEachIndexed { index, label ->
+                                ToggleButton(
+                                    checked = autoCompression == index,
+                                    onCheckedChange = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        autoCompression = index
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (autoCompression == index) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = when (autoCompression) {
+                                0 -> "No compression. Files over 25 MB will fail on Groq."
+                                1 -> "Best quality. Targets just under the upload limit. Recommended."
+                                else -> "Smaller files. Still great for voice. Best for slow connections."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                        )
+                    }
+
+                    // ---------- PAGE 5: Verification ----------
+                    5 -> {
                         AnimatedContent(
-                            targetState = keyState, 
+                            targetState = keyState,
                             label = "verification_state",
                             transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(400)) }
                         ) { state ->
@@ -435,6 +626,7 @@ fun OnboardingScreen(
                                         )
                                     }
                                 }
+
                                 KeyVerificationState.SUCCESS -> {
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -470,18 +662,25 @@ fun OnboardingScreen(
                                             textAlign = TextAlign.Center
                                         )
                                         Spacer(modifier = Modifier.height(48.dp))
-                                        
-                                        Button(
-                                            onClick = { 
-                                                // Lempar cleanKey yang murni ke Settings agar tersimpan sempurna
-                                                val finalCleanKey = apiKeyInput.replace(Regex("(?i)^bearer\\s*"), "").replace(" ", "").trim()
-                                                onComplete(nameInput.trim(), aiProvider, finalCleanKey, aiTask, aiFormat) 
+
+                                        BouncyButton(
+                                            onClick = {
+                                                val finalCleanKey = apiKeyInput
+                                                    .replace(Regex("(?i)^bearer\\s*"), "")
+                                                    .replace(" ", "")
+                                                    .trim()
+                                                onComplete(
+                                                    nameInput.trim(),
+                                                    aiProvider,
+                                                    finalCleanKey,
+                                                    aiTask,
+                                                    aiFormat,
+                                                    autoCompression
+                                                )
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(64.dp),
-                                            shape = CircleShape,
-                                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                                                .height(64.dp)
                                         ) {
                                             Text(
                                                 text = "Start Workspace",
@@ -491,6 +690,7 @@ fun OnboardingScreen(
                                         }
                                     }
                                 }
+
                                 KeyVerificationState.ERROR -> {
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -526,18 +726,17 @@ fun OnboardingScreen(
                                             textAlign = TextAlign.Center
                                         )
                                         Spacer(modifier = Modifier.height(48.dp))
-                                        
-                                        OutlinedButton(
-                                            onClick = { 
-                                                coroutineScope.launch { 
-                                                    pagerState.animateScrollToPage(3) 
+
+                                        BouncyOutlinedButton(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    pagerState.animateScrollToPage(3)
                                                     keyState = KeyVerificationState.IDLE
                                                 }
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(56.dp),
-                                            shape = CircleShape
+                                                .height(56.dp)
                                         ) {
                                             Text(
                                                 text = "Review API Key",

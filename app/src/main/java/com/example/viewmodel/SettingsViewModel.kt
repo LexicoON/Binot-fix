@@ -36,7 +36,7 @@ enum class UpdateState { Idle, Checking, Available, Downloading, Downloaded, Err
 
 class SettingsViewModel(
     private val settingsRepository: SettingsRepository,
-    private val noteRepository: NoteRepository 
+    private val noteRepository: NoteRepository
 ) : ViewModel() {
 
     private val _isDataLoaded = MutableStateFlow(false)
@@ -67,7 +67,7 @@ class SettingsViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = ""
     )
-    
+
     val themeMode: StateFlow<Int> = settingsRepository.themeModeFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -83,10 +83,9 @@ class SettingsViewModel(
     val aiProvider: StateFlow<Int> = settingsRepository.aiProviderFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = 0 // 0 = Gemini, 1 = Groq
+        initialValue = 0
     )
 
-    // --- NEW GLOBAL AI PREFERENCES ---
     val aiLanguage: StateFlow<String> = settingsRepository.aiLanguageFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -109,6 +108,18 @@ class SettingsViewModel(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = false
+    )
+
+    val autoCompressionMode: StateFlow<Int> = settingsRepository.autoCompressionModeFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 1
+    )
+
+    val colorStyle: StateFlow<Int> = settingsRepository.colorStyleFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 0
     )
 
     private val _updateState = MutableStateFlow(UpdateState.Idle)
@@ -167,7 +178,14 @@ class SettingsViewModel(
         viewModelScope.launch { settingsRepository.saveAiFormat(format) }
     }
 
-    // FUNGSI BARU: Mengeksekusi query reset dan mengirim callback ke UI
+    fun saveAutoCompressionMode(mode: Int) {
+        viewModelScope.launch { settingsRepository.saveAutoCompressionMode(mode) }
+    }
+
+    fun saveColorStyle(style: Int) {
+        viewModelScope.launch { settingsRepository.saveColorStyle(style) }
+    }
+
     fun applyAiPreferencesToAllNotes(onResult: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -186,8 +204,6 @@ class SettingsViewModel(
 
                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                     ZipOutputStream(outputStream).use { zos ->
-
-                        // 1. Tulis notes.json — audioPath diganti jadi nama file saja (bukan full path)
                         val notesForJson = notes.map { note ->
                             val audioFileName = note.audioPath?.let { File(it).name }
                             note.copy(audioPath = audioFileName)
@@ -199,7 +215,6 @@ class SettingsViewModel(
                         zos.write(jsonBytes)
                         zos.closeEntry()
 
-                        // 2. Masukkan semua file audio yang ada
                         notes.forEach { note ->
                             val audioPath = note.audioPath ?: return@forEach
                             val audioFile = File(audioPath)
@@ -236,9 +251,8 @@ class SettingsViewModel(
             try {
                 val audioDir = File(context.filesDir, "audio_records").apply { mkdirs() }
                 var jsonStr: String? = null
-                val extractedAudioFiles = mutableMapOf<String, File>() // fileName -> File
+                val extractedAudioFiles = mutableMapOf<String, File>()
 
-                // Coba baca sebagai ZIP (format backup baru)
                 try {
                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
                         ZipInputStream(inputStream).use { zis ->
@@ -263,10 +277,9 @@ class SettingsViewModel(
                         }
                     }
                 } catch (e: Exception) {
-                    // Bukan file ZIP — akan di-handle fallback di bawah
+                    // Fallback abajo
                 }
 
-                // Fallback: backup lama (JSON biasa, bukan ZIP)
                 if (jsonStr == null) {
                     val sb = StringBuilder()
                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
@@ -280,12 +293,10 @@ class SettingsViewModel(
 
                 val notes = adapter.fromJson(jsonStr!!)
                 if (notes != null) {
-                    // Remap audioPath: nama file → full path baru hasil ekstrak
                     val remappedNotes = notes.map { note ->
                         val audioFileName = note.audioPath
                         val finalAudioPath = if (audioFileName != null) {
-                            extractedAudioFiles[audioFileName]?.absolutePath
-                                ?: note.audioPath // fallback: pakai path lama kalau backup lama
+                            extractedAudioFiles[audioFileName]?.absolutePath ?: note.audioPath
                         } else null
                         note.copy(audioPath = finalAudioPath)
                     }
@@ -317,17 +328,17 @@ class SettingsViewModel(
                     }
                 } else {
                     delay(500)
-                    _updateState.value = UpdateState.Idle 
+                    _updateState.value = UpdateState.Idle
                 }
             } catch (e: HttpException) {
                 e.printStackTrace()
-                if (e.code() == 403) _latestVersionStr.value = "Server Limit (Coba lagi 1 jam)" 
-                else if (e.code() == 404) _latestVersionStr.value = "Belum Ada Rilis Tersedia"
-                else _latestVersionStr.value = "HTTP Error: ${e.code()}" 
+                if (e.code() == 403) _latestVersionStr.value = "Server Limit (Try again in 1 hour)"
+                else if (e.code() == 404) _latestVersionStr.value = "No Release Available"
+                else _latestVersionStr.value = "HTTP Error: ${e.code()}"
                 _updateState.value = UpdateState.Error
             } catch (e: Exception) {
                 e.printStackTrace()
-                _latestVersionStr.value = "Network Error (Periksa Internet)"
+                _latestVersionStr.value = "Network Error (Check Internet)"
                 _updateState.value = UpdateState.Error
             }
         }
@@ -351,10 +362,10 @@ class SettingsViewModel(
         _downloadProgress.value = 0
 
         val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("Binot Update ${_latestVersionStr.value}")
+            .setTitle("Obinot Update ${_latestVersionStr.value}")
             .setDescription("Downloading latest version...")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Binot_${_latestVersionStr.value}.apk")
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Obinot_${_latestVersionStr.value}.apk")
             .setMimeType("application/vnd.android.package-archive")
 
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -369,12 +380,12 @@ class SettingsViewModel(
                     val bytesDownloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
                     val bytesTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
                     val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                    
+
                     if (bytesDownloadedIndex != -1 && bytesTotalIndex != -1 && statusIndex != -1) {
                         val bytesDownloaded = cursor.getInt(bytesDownloadedIndex)
                         val bytesTotal = cursor.getInt(bytesTotalIndex)
                         val status = cursor.getInt(statusIndex)
-                        
+
                         if (status == DownloadManager.STATUS_SUCCESSFUL) {
                             _downloadProgress.value = 100
                             downloadedApkUri = downloadManager.getUriForDownloadedFile(downloadId)

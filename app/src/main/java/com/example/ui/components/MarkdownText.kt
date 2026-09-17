@@ -18,20 +18,24 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -45,12 +49,17 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,9 +68,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
-/**
- * A single saved highlight.
- */
+// ============================================================
+// Data types
+// ============================================================
+
 data class HighlightItem(
     val text: String,
     val note: String,
@@ -70,7 +80,6 @@ data class HighlightItem(
     val end: Int = -1
 )
 
-/** Snapshot of one rendered line's text layout, window position, and how it maps back to the raw line. */
 data class LineLayoutInfo(
     val layoutResult: TextLayoutResult,
     val boundsInWindow: Rect,
@@ -78,14 +87,17 @@ data class LineLayoutInfo(
     val prefixLen: Int
 )
 
-/**
- * Sealed class to handle chunking between Native Compose Text, KaTeX WebViews, and Mermaid WebViews
- */
 sealed class MarkdownItem {
     data class NativeLine(val text: String, val lineIndex: Int) : MarkdownItem()
     data class MathBlock(val rawText: String, val startLineIndex: Int) : MarkdownItem()
     data class MermaidBlock(val rawText: String, val startLineIndex: Int) : MarkdownItem()
+    data class CodeBlock(val code: String, val language: String?, val startLineIndex: Int) : MarkdownItem()
+    data class Table(val rows: List<List<String>>, val startLineIndex: Int) : MarkdownItem()
 }
+
+// ============================================================
+// Selection resolution
+// ============================================================
 
 private fun resolveRectToPosition(
     rect: Rect,
@@ -134,17 +146,18 @@ private fun resolveRectToPosition(
     return Triple(lineIndex, bestStart, bestStart + selectedText.length)
 }
 
-// Data class untuk membawa KaTeX + mhchem assets
+// ============================================================
+// Assets
+// ============================================================
+
 data class KaTeXAssets(val css: String, val js: String, val autoRender: String, val mhchem: String) {
     val isReady get() = js.isNotEmpty() && mhchem.isNotEmpty()
 }
 
-// Data class untuk membawa Mermaid.js assets
 data class MermaidAssets(val js: String) {
     val isReady get() = js.isNotEmpty()
 }
 
-// Komponen Shimmer Elegan
 @Composable
 fun ShimmerBox(modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
@@ -173,6 +186,10 @@ fun ShimmerBox(modifier: Modifier = Modifier) {
             .background(brush)
     )
 }
+
+// ============================================================
+// KaTeX WebView
+// ============================================================
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -233,13 +250,8 @@ body {
     padding-bottom: 6px; 
     -webkit-overflow-scrolling: touch;
 }
-.katex-display::-webkit-scrollbar {
-    height: 4px;
-}
-.katex-display::-webkit-scrollbar-thumb {
-    background: #88888888;
-    border-radius: 4px;
-}
+.katex-display::-webkit-scrollbar { height: 4px; }
+.katex-display::-webkit-scrollbar-thumb { background: #88888888; border-radius: 4px; }
 li { margin-bottom: 4px; }
 </style>
 </head>
@@ -251,7 +263,6 @@ li { margin-bottom: 4px; }
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     var el = document.getElementById('math-content');
-    
     if (typeof renderMathInElement !== 'undefined') {
         renderMathInElement(el, {
             delimiters: [
@@ -263,15 +274,12 @@ document.addEventListener("DOMContentLoaded", function() {
             throwOnError: false
         });
     }
-    
-    // LOGIC UPGRADE: Pakai ResizeObserver biar realtime update tinggi, hindari nge-blank saat di-scroll cepat di LazyColumn
     if (window.ResizeObserver) {
         new ResizeObserver(function(entries) {
             var h = entries[0].target.getBoundingClientRect().height;
             if (window.HeightBridge) window.HeightBridge.onHeightReady(Math.ceil(h) + 30);
         }).observe(el);
     } else {
-        // Fallback untuk device sangat lama
         setTimeout(function() {
             var h = el ? el.getBoundingClientRect().height : document.body.scrollHeight;
             if (window.HeightBridge) window.HeightBridge.onHeightReady(Math.ceil(h) + 30);
@@ -283,26 +291,23 @@ document.addEventListener("DOMContentLoaded", function() {
 </html>""".trimIndent()
     }
 
-    // STATE CERDAS: Nahan shift layout dan nyalain animasi
     var isRendered by remember(htmlContent) { mutableStateOf(false) }
     var webViewHeightPx by remember(htmlContent) { mutableStateOf(heightCache[htmlContent] ?: -1) }
 
     val density = LocalDensity.current
     val targetHeightDp = remember(webViewHeightPx) {
-        if (webViewHeightPx == -1) 60.dp // Tinggi box reservasi awal (Skeleton Box)
+        if (webViewHeightPx == -1) 60.dp
         else with(density) { webViewHeightPx.toDp() }.coerceAtLeast(1.dp)
     }
 
-    // Melar mulus
     val animatedHeight by animateDpAsState(
         targetValue = targetHeightDp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
         label = "katexHeight"
     )
 
-    // Pudar halus (Crossfade)
     val webViewAlpha by animateFloatAsState(
-        targetValue = if (isRendered) 1f else 0.01f, // 0.01f mencegah view mati 100% sehingga tetap ter-render
+        targetValue = if (isRendered) 1f else 0.01f,
         animationSpec = tween(400),
         label = "webviewAlpha"
     )
@@ -313,7 +318,7 @@ document.addEventListener("DOMContentLoaded", function() {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(animatedHeight) // Wadah dipatok dengan animasi tinggi melar halus
+            .height(animatedHeight)
     ) {
         AndroidView(
             modifier = Modifier
@@ -321,14 +326,13 @@ document.addEventListener("DOMContentLoaded", function() {
                 .alpha(webViewAlpha),
             factory = { ctx ->
                 android.webkit.WebView(ctx).apply {
-                    // LOGIC UPGRADE: Wajib MATCH_PARENT supaya gak kena clip oleh Compose Box
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     isVerticalScrollBarEnabled = false
-                    isHorizontalScrollBarEnabled = false 
+                    isHorizontalScrollBarEnabled = false
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.defaultTextEncodingName = "utf-8"
@@ -336,17 +340,16 @@ document.addEventListener("DOMContentLoaded", function() {
                     settings.allowFileAccessFromFileURLs = true
                     webViewClient = android.webkit.WebViewClient()
                     webChromeClient = android.webkit.WebChromeClient()
-                    
+
                     addJavascriptInterface(object : Any() {
                         @android.webkit.JavascriptInterface
                         fun onHeightReady(height: Int) {
-                            // Wajib dieksekusi di Main Thread buat update UI
                             Handler(Looper.getMainLooper()).post {
                                 val d = ctx.resources.displayMetrics.density
                                 val px = (height * d).toInt().coerceAtLeast(1)
                                 capturedHeightCache[capturedHtmlContent] = px
                                 webViewHeightPx = px
-                                isRendered = true // Memicu fade-out Shimmer dan pemanjangan wadah
+                                isRendered = true
                             }
                         }
                     }, "HeightBridge")
@@ -367,7 +370,6 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         )
 
-        // Shimmer Overlay yang numpuk pas di atas webview sebelum jadi
         AnimatedVisibility(
             visible = !isRendered,
             enter = fadeIn(),
@@ -377,6 +379,10 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 }
+
+// ============================================================
+// Mermaid WebView
+// ============================================================
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -435,7 +441,6 @@ document.addEventListener("DOMContentLoaded", function() {
         nodes: [el],
         suppressErrors: false
     }).then(function() {
-        // LOGIC UPGRADE: Real-time ResizeObserver buat Mermaid biar ga blank pas scroll
         if (window.ResizeObserver) {
             new ResizeObserver(function(entries) {
                 var h = entries[0].target.getBoundingClientRect().height;
@@ -465,7 +470,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     val density = LocalDensity.current
     val targetHeightDp = remember(webViewHeightPx) {
-        if (webViewHeightPx == -1) 120.dp // Tinggi box skeleton yang agak besar untuk diagram
+        if (webViewHeightPx == -1) 120.dp
         else with(density) { webViewHeightPx.toDp() }.coerceAtLeast(1.dp)
     }
 
@@ -495,14 +500,13 @@ document.addEventListener("DOMContentLoaded", function() {
                 .alpha(webViewAlpha),
             factory = { ctx ->
                 android.webkit.WebView(ctx).apply {
-                    // LOGIC UPGRADE: Wajib MATCH_PARENT supaya gak kena clip oleh Compose Box
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     isVerticalScrollBarEnabled = false
-                    isHorizontalScrollBarEnabled = false 
+                    isHorizontalScrollBarEnabled = false
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.defaultTextEncodingName = "utf-8"
@@ -510,7 +514,7 @@ document.addEventListener("DOMContentLoaded", function() {
                     settings.allowFileAccessFromFileURLs = true
                     webViewClient = android.webkit.WebViewClient()
                     webChromeClient = android.webkit.WebChromeClient()
-                    
+
                     addJavascriptInterface(object : Any() {
                         @android.webkit.JavascriptInterface
                         fun onHeightReady(height: Int) {
@@ -560,7 +564,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     mermaidError?.let { err ->
-        androidx.compose.foundation.layout.Column(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp)
@@ -568,121 +572,152 @@ document.addEventListener("DOMContentLoaded", function() {
                 .background(Color(0xFF3A1A1A))
                 .padding(10.dp)
         ) {
-            Text("⚠ Mermaid Error", color = Color(0xFFFF6B6B), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 13.sp)
+            Text("⚠ Mermaid Error", color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Text(err, color = Color(0xFFFFAAAA), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
         }
     }
 }
 
+// ============================================================
+// Markdown parser
+// ============================================================
+
+private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
+    val items = mutableListOf<MarkdownItem>()
+    var i = 0
+
+    while (i < lines.size) {
+        val line = lines[i]
+        val trimmed = line.trim()
+
+        // 1. Mermaid block (```mermaid)
+        if (trimmed.lowercase().startsWith("```mermaid")) {
+            val startIndex = i
+            val content = StringBuilder()
+            i++
+            while (i < lines.size && !lines[i].trim().startsWith("```")) {
+                if (content.isNotEmpty()) content.append("\n")
+                content.append(lines[i])
+                i++
+            }
+            if (i < lines.size) i++ // consume closing fence
+            items.add(MarkdownItem.MermaidBlock(content.toString(), startIndex))
+            continue
+        }
+
+        // 2. Generic code block (```)
+        if (trimmed.startsWith("```")) {
+            val startIndex = i
+            val language = trimmed.removePrefix("```").trim().ifBlank { null }
+            val code = StringBuilder()
+            i++
+            while (i < lines.size && !lines[i].trim().startsWith("```")) {
+                if (code.isNotEmpty()) code.append("\n")
+                code.append(lines[i])
+                i++
+            }
+            if (i < lines.size) i++ // consume closing fence
+            items.add(MarkdownItem.CodeBlock(code.toString(), language, startIndex))
+            continue
+        }
+
+        // 3. Math block ($$)
+        if (trimmed.startsWith("$$")) {
+            val startIndex = i
+            // Single-line case: $$ ... $$
+            if (trimmed.length > 2 && trimmed.endsWith("$$")) {
+                items.add(MarkdownItem.MathBlock(line, startIndex))
+                i++
+                continue
+            }
+            // Multi-line case
+            val content = StringBuilder(line)
+            i++
+            while (i < lines.size) {
+                content.append("\n").append(lines[i])
+                if (lines[i].trim().endsWith("$$")) {
+                    i++
+                    break
+                }
+                i++
+            }
+            items.add(MarkdownItem.MathBlock(content.toString(), startIndex))
+            continue
+        }
+
+        // 4. Table (|...|)
+        if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 1) {
+            val startIndex = i
+            val tableLines = mutableListOf<String>()
+            while (i < lines.size) {
+                val t = lines[i].trim()
+                if (t.startsWith("|") && t.endsWith("|") && t.length > 1) {
+                    tableLines.add(t)
+                    i++
+                } else break
+            }
+            // Parse rows, skipping separator line (second line with |---|---|)
+            val rows = tableLines
+                .filterIndexed { idx, l ->
+                    // skip separator rows like |---|---|
+                    !(idx == 1 && l.replace(" ", "").matches(Regex("\\|[-:]+(\\|[-:]+)+\\|")))
+                }
+                .map { row ->
+                    row.removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
+                }
+            if (rows.isNotEmpty()) {
+                items.add(MarkdownItem.Table(rows, startIndex))
+            }
+            continue
+        }
+
+        // 5. Native line
+        items.add(MarkdownItem.NativeLine(line, i))
+        i++
+    }
+
+    return items
+}
+
+// ============================================================
+// Main component
+// ============================================================
+
 @Composable
 fun MarkdownText(
-    text: String, 
+    text: String,
     listState: LazyListState,
     highlightsInfo: String? = null,
     onSavedHighlightClick: (text: String, note: String, line: Int, start: Int, end: Int) -> Unit = { _, _, _, _, _ -> },
     onResolveSelection: (resolver: (Rect, String) -> Triple<Int, Int, Int>?) -> Unit = {},
-    highlightQuery: String = "", 
-    fontFamily: FontFamily = FontFamily.SansSerif, 
+    highlightQuery: String = "",
+    fontFamily: FontFamily = FontFamily.SansSerif,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
 
     var katexAssets by remember { mutableStateOf(KaTeXAssets("", "", "", "")) }
     var mermaidAssets by remember { mutableStateOf(MermaidAssets("")) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            // Load KaTeX + mhchem
             val css = try { context.assets.open("katex/katex.min.css").bufferedReader().readText() } catch (e: Exception) { "" }
             val js = try { context.assets.open("katex/katex.min.js").bufferedReader().readText() } catch (e: Exception) { "" }
             val ar = try { context.assets.open("katex/auto-render.min.js").bufferedReader().readText() } catch (e: Exception) { "" }
             val mhchem = try { context.assets.open("katex/mhchem.min.js").bufferedReader().readText() } catch (e: Exception) { "" }
             katexAssets = KaTeXAssets(css, js, ar, mhchem)
 
-            // Load Mermaid
             val mermaidJs = try { context.assets.open("mermaid/mermaid.min.js").bufferedReader().readText() } catch (e: Exception) { "" }
             mermaidAssets = MermaidAssets(mermaidJs)
         }
     }
 
-    val lines = text.split("\n")
-    
-    val markdownItems = remember(text) {
-        val items = mutableListOf<MarkdownItem>()
-        var inMathBlock = false
-        var mathBlockContent = ""
-        var mathBlockStartIndex = -1
+    val lines = remember(text) { text.split("\n") }
 
-        var inMermaidBlock = false
-        var mermaidBlockContent = ""
-        var mermaidBlockStartIndex = -1
+    // Pre-parse the entire markdown into items. Recomputed only when text changes.
+    val markdownItems = remember(text) { parseMarkdownItems(lines) }
 
-        var i = 0
-        while (i < lines.size) {
-            val line = lines[i]
-
-            // 1. Logika Tangkap Mermaid Block
-            if (inMermaidBlock) {
-                if (line.trim().startsWith("```") && !line.trim().startsWith("```mermaid")) {
-                    inMermaidBlock = false
-                    items.add(MarkdownItem.MermaidBlock(mermaidBlockContent, mermaidBlockStartIndex))
-                    mermaidBlockContent = ""
-                } else {
-                    mermaidBlockContent += if (mermaidBlockContent.isEmpty()) line else "\n" + line
-                }
-                i++
-                continue
-            }
-
-            if (line.trim().lowercase().startsWith("```mermaid")) {
-                inMermaidBlock = true
-                mermaidBlockStartIndex = i
-                mermaidBlockContent = "" 
-                i++
-                continue
-            }
-
-            // 2. Logika Tangkap KaTeX Block
-            if (inMathBlock) {
-                mathBlockContent += "\n" + line
-                if (line.trim().endsWith("$$") || line.trim() == "$$") {
-                    inMathBlock = false
-                    items.add(MarkdownItem.MathBlock(mathBlockContent, mathBlockStartIndex))
-                    mathBlockContent = ""
-                }
-                i++
-                continue
-            }
-
-            if (line.trim().startsWith("$$")) {
-                inMathBlock = true
-                mathBlockStartIndex = i
-                mathBlockContent = line
-                if (line.trim().length > 2 && line.trim().endsWith("$$")) {
-                    inMathBlock = false
-                    items.add(MarkdownItem.MathBlock(mathBlockContent, mathBlockStartIndex))
-                    mathBlockContent = ""
-                }
-                i++
-                continue
-            }
-
-            // 3. Logika Teks Native dan KaTeX Inline
-            val hasInlineMath = Regex("""\$.+?\$""").containsMatchIn(line)
-            if (hasInlineMath) {
-                items.add(MarkdownItem.MathBlock(line, i))
-            } else {
-                items.add(MarkdownItem.NativeLine(line, i))
-            }
-            i++
-        }
-        
-        if (inMathBlock) items.add(MarkdownItem.MathBlock(mathBlockContent, mathBlockStartIndex))
-        if (inMermaidBlock) items.add(MarkdownItem.MermaidBlock(mermaidBlockContent, mermaidBlockStartIndex))
-        
-        items
-    }
-    
     val savedHighlights = remember(highlightsInfo) {
         val list = mutableListOf<HighlightItem>()
         if (!highlightsInfo.isNullOrBlank() && highlightsInfo != "[]") {
@@ -713,25 +748,39 @@ fun MarkdownText(
     val webViewHeightCache = remember { androidx.compose.runtime.snapshots.SnapshotStateMap<String, Int>() }
     val isDarkTheme = isSystemInDarkTheme()
 
+    // Clean up registry + cache on dispose to avoid memory leaks when leaving screen
+    DisposableEffect(Unit) {
+        onDispose {
+            lineRegistry.clear()
+            webViewHeightCache.clear()
+        }
+    }
+
     LaunchedEffect(text) {
         onResolveSelection { rect, selectedText ->
             resolveRectToPosition(rect, selectedText, lineRegistry, lines)
         }
     }
-    
+
     LazyColumn(
         state = listState,
         modifier = modifier.padding(horizontal = 12.dp)
     ) {
         item { Spacer(modifier = Modifier.height(8.dp)) }
 
-        items(markdownItems.size, key = { index -> markdownItems[index].let {
-            when (it) {
-                is MarkdownItem.MathBlock -> "math_${it.startLineIndex}"
-                is MarkdownItem.MermaidBlock -> "mermaid_${it.startLineIndex}"
-                is MarkdownItem.NativeLine -> "line_${it.lineIndex}"
+        items(
+            count = markdownItems.size,
+            key = { index ->
+                val item = markdownItems[index]
+                when (item) {
+                    is MarkdownItem.MathBlock -> "math_${item.startLineIndex}"
+                    is MarkdownItem.MermaidBlock -> "mermaid_${item.startLineIndex}"
+                    is MarkdownItem.CodeBlock -> "code_${item.startLineIndex}"
+                    is MarkdownItem.Table -> "table_${item.startLineIndex}"
+                    is MarkdownItem.NativeLine -> "line_${item.lineIndex}"
+                }
             }
-        }}) { index ->
+        ) { index ->
             when (val item = markdownItems[index]) {
                 is MarkdownItem.MathBlock -> {
                     KaTeXWebView(
@@ -743,6 +792,7 @@ fun MarkdownText(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                 }
+
                 is MarkdownItem.MermaidBlock -> {
                     MermaidWebView(
                         mermaidContent = item.rawText,
@@ -752,6 +802,22 @@ fun MarkdownText(
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                 }
+
+                is MarkdownItem.CodeBlock -> {
+                    CodeBlockView(
+                        code = item.code,
+                        language = item.language,
+                        fontFamily = fontFamily
+                    )
+                }
+
+                is MarkdownItem.Table -> {
+                    TableView(
+                        rows = item.rows,
+                        fontFamily = fontFamily
+                    )
+                }
+
                 is MarkdownItem.NativeLine -> {
                     val lineIndex = item.lineIndex
                     val line = item.text
@@ -766,6 +832,15 @@ fun MarkdownText(
                     }
 
                     when {
+                        // Horizontal rule
+                        trimmedLine.matches(Regex("^(---|\\*\\*\\*|___)$")) -> {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        }
+
+                        // Headings
                         trimmedLine.startsWith("# ") -> {
                             Text(
                                 text = trimmedLine.removePrefix("# ").trim(),
@@ -790,6 +865,24 @@ fun MarkdownText(
                                 modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
                             )
                         }
+
+                        // Blockquote
+                        trimmedLine.startsWith("> ") || trimmedLine == ">" -> {
+                            BlockQuoteLine(
+                                text = trimmedLine.removePrefix(">").trimStart(),
+                                lineIndex = lineIndex,
+                                highlightQuery = highlightQuery,
+                                lineHighlights = lineHighlights,
+                                legacyHighlights = legacyHighlights,
+                                onSavedHighlightClick = onSavedHighlightClick,
+                                highlightBgColor = highlightBgColor,
+                                highlightTextColor = highlightTextColor,
+                                fontFamily = fontFamily,
+                                lineRegistry = lineRegistry
+                            )
+                        }
+
+                        // Bullet list
                         trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ") -> {
                             val paddingStart = 16.dp + (indentSpaces * 6).dp
                             val prefixLen = indentSpaces + 2
@@ -797,11 +890,11 @@ fun MarkdownText(
                                 Text(
                                     text = if (indentSpaces > 0) "◦" else "•",
                                     modifier = Modifier.width(24.dp),
-                                    style = MaterialTheme.typography.bodyLarge, 
+                                    style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
                                 BasicMarkdownLine(
-                                    text = trimmedLine.substring(2).trim(), 
+                                    text = trimmedLine.substring(2).trim(),
                                     lineIndex = lineIndex,
                                     prefixLen = prefixLen,
                                     highlightQuery = highlightQuery,
@@ -812,10 +905,13 @@ fun MarkdownText(
                                     highlightTextColor = highlightTextColor,
                                     fontFamily = fontFamily,
                                     lineRegistry = lineRegistry,
+                                    uriHandler = uriHandler,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
                         }
+
+                        // Numbered list
                         trimmedLine.matches(Regex("^[0-9]+\\.\\s.*")) -> {
                             val dotIndex = trimmedLine.indexOf(".")
                             val number = trimmedLine.substring(0, dotIndex + 1)
@@ -823,16 +919,16 @@ fun MarkdownText(
                             val paddingStart = 16.dp + (indentSpaces * 6).dp
                             val contentStartInTrimmed = trimmedLine.indexOf(content, dotIndex + 1)
                             val prefixLen = indentSpaces + (if (contentStartInTrimmed >= 0) contentStartInTrimmed else dotIndex + 1)
-                            
+
                             Row(modifier = Modifier.padding(start = paddingStart, top = 8.dp, bottom = 8.dp)) {
                                 Text(
-                                    text = number, 
-                                    modifier = Modifier.width(32.dp), 
-                                    style = MaterialTheme.typography.bodyLarge, 
+                                    text = number,
+                                    modifier = Modifier.width(32.dp),
+                                    style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
                                 BasicMarkdownLine(
-                                    text = content, 
+                                    text = content,
                                     lineIndex = lineIndex,
                                     prefixLen = prefixLen,
                                     highlightQuery = highlightQuery,
@@ -843,13 +939,16 @@ fun MarkdownText(
                                     highlightTextColor = highlightTextColor,
                                     fontFamily = fontFamily,
                                     lineRegistry = lineRegistry,
+                                    uriHandler = uriHandler,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
                         }
+
                         trimmedLine.isBlank() -> Spacer(modifier = Modifier.height(16.dp))
+
                         else -> BasicMarkdownLine(
-                            text = trimmedLine, 
+                            text = trimmedLine,
                             lineIndex = lineIndex,
                             prefixLen = indentSpaces,
                             highlightQuery = highlightQuery,
@@ -860,20 +959,191 @@ fun MarkdownText(
                             highlightTextColor = highlightTextColor,
                             fontFamily = fontFamily,
                             lineRegistry = lineRegistry,
+                            uriHandler = uriHandler,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
                 }
             }
         }
-        
+
         item { Spacer(modifier = Modifier.height(40.dp)) }
     }
 }
 
+// ============================================================
+// Code block & Table renderers
+// ============================================================
+
+@Composable
+private fun CodeBlockView(
+    code: String,
+    language: String?,
+    fontFamily: FontFamily
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp)
+            )
+    ) {
+        if (!language.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text(
+                    text = language.lowercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            )
+        }
+        Text(
+            text = code,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 22.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        )
+    }
+}
+
+@Composable
+private fun TableView(
+    rows: List<List<String>>,
+    fontFamily: FontFamily
+) {
+    if (rows.isEmpty()) return
+    val columnCount = rows.maxOf { it.size }
+    if (columnCount == 0) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(12.dp)
+            )
+    ) {
+        rows.forEachIndexed { rowIndex, row ->
+            val isHeader = rowIndex == 0
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isHeader) MaterialTheme.colorScheme.surfaceVariant
+                        else Color.Transparent
+                    )
+                    .padding(vertical = 10.dp)
+            ) {
+                repeat(columnCount) { colIndex ->
+                    val cell = row.getOrNull(colIndex) ?: ""
+                    Text(
+                        text = cell,
+                        style = if (isHeader)
+                            MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        else
+                            MaterialTheme.typography.bodyMedium,
+                        color = if (isHeader)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else
+                            MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 10.dp),
+                        maxLines = 3
+                    )
+                    if (colIndex < columnCount - 1) {
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
+                    }
+                }
+            }
+            if (rowIndex < rows.size - 1) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlockQuoteLine(
+    text: String,
+    lineIndex: Int,
+    highlightQuery: String,
+    lineHighlights: List<HighlightItem>,
+    legacyHighlights: List<HighlightItem>,
+    onSavedHighlightClick: (text: String, note: String, line: Int, start: Int, end: Int) -> Unit,
+    highlightBgColor: Color,
+    highlightTextColor: Color,
+    fontFamily: FontFamily,
+    lineRegistry: MutableMap<Int, LineLayoutInfo>
+) {
+    val uriHandler = LocalUriHandler.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Barra de acento a la izquierda
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .heightIn(min = 24.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        BasicMarkdownLine(
+            text = text,
+            lineIndex = lineIndex,
+            prefixLen = 2,
+            highlightQuery = highlightQuery,
+            lineHighlights = lineHighlights,
+            legacyHighlights = legacyHighlights,
+            onSavedHighlightClick = onSavedHighlightClick,
+            highlightBgColor = highlightBgColor,
+            highlightTextColor = highlightTextColor,
+            fontFamily = fontFamily,
+            lineRegistry = lineRegistry,
+            uriHandler = uriHandler,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+// ============================================================
+// Basic line renderer (with link support)
+// ============================================================
+
 @Composable
 fun BasicMarkdownLine(
-    text: String, 
+    text: String,
     lineIndex: Int,
     prefixLen: Int,
     highlightQuery: String,
@@ -884,89 +1154,123 @@ fun BasicMarkdownLine(
     highlightTextColor: Color,
     fontFamily: FontFamily,
     lineRegistry: MutableMap<Int, LineLayoutInfo>,
+    uriHandler: androidx.compose.ui.platform.UriHandler,
     modifier: Modifier = Modifier
 ) {
-    val annotatedString = buildAnnotatedString {
-        var currentIndex = 0
-        val pattern = Regex("\\*\\*(.*?)\\*\\*|\\*(.*?)\\*|_(.*?)_")
-        val matches = pattern.findAll(text)
-        
-        for (match in matches) {
-            append(text.substring(currentIndex, match.range.first))
-            if (match.groups[1] != null) { 
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                    append(match.groups[1]!!.value)
-                }
-            } else if (match.groups[2] != null) { 
-                withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                    append(match.groups[2]!!.value)
-                }
-            } else if (match.groups[3] != null) { 
-                withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                    append(match.groups[3]!!.value)
-                }
-            }
-            currentIndex = match.range.last + 1
-        }
-        append(text.substring(currentIndex))
-        
-        val plainString = this.toAnnotatedString().text
-        val plainLength = plainString.length
+    val annotatedString = remember(text, lineHighlights, legacyHighlights, highlightQuery, highlightBgColor, highlightTextColor) {
+        buildAnnotatedString {
+            // Regex combinada: bold, italic, links
+            val pattern = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)|\\*\\*(.*?)\\*\\*|\\*(.*?)\\*|_(.*?)_")
+            var currentIndex = 0
+            val matches = pattern.findAll(text)
 
-        lineHighlights.forEach { item ->
-            val localStart = item.start - prefixLen
-            val localEnd = item.end - prefixLen
-            if (localStart in 0 until plainLength && localEnd in (localStart + 1)..plainLength) {
-                addStyle(
-                    style = SpanStyle(background = highlightBgColor, color = highlightTextColor, fontWeight = FontWeight.SemiBold),
-                    start = localStart,
-                    end = localEnd
-                )
-                addStringAnnotation(
-                    tag = "SAVED_HIGHLIGHT",
-                    annotation = "${item.text}@@KEY@@${item.line}:${item.start}:${item.end}",
-                    start = localStart,
-                    end = localEnd
-                )
+            for (match in matches) {
+                append(text.substring(currentIndex, match.range.first))
+                when {
+                    // Link: [text](url)
+                    match.groups[1] != null && match.groups[2] != null -> {
+                        val linkText = match.groups[1]!!.value
+                        val linkUrl = match.groups[2]!!.value
+                        withLink(
+                            LinkAnnotation.Url(
+                                url = linkUrl,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(
+                                        color = Color(0xFF64B5F6),
+                                        textDecoration = TextDecoration.Underline
+                                    )
+                                ),
+                                linkInteractionListener = {
+                                    try { uriHandler.openUri(linkUrl) } catch (_: Exception) {}
+                                }
+                            )
+                        ) {
+                            append(linkText)
+                        }
+                    }
+                    // Bold
+                    match.groups[3] != null -> {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(match.groups[3]!!.value)
+                        }
+                    }
+                    // Italic (*)
+                    match.groups[4] != null -> {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(match.groups[4]!!.value)
+                        }
+                    }
+                    // Italic (_)
+                    match.groups[5] != null -> {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(match.groups[5]!!.value)
+                        }
+                    }
+                }
+                currentIndex = match.range.last + 1
             }
-        }
+            append(text.substring(currentIndex))
 
-        val plainLower = plainString.lowercase()
-        legacyHighlights.forEach { item ->
-            val wordLower = item.text.lowercase()
-            if (wordLower.isBlank()) return@forEach
-            var startIndex = plainLower.indexOf(wordLower)
-            while (startIndex >= 0) {
-                addStyle(
-                    style = SpanStyle(background = highlightBgColor, color = highlightTextColor, fontWeight = FontWeight.SemiBold),
-                    start = startIndex,
-                    end = startIndex + wordLower.length
-                )
-                addStringAnnotation(
-                    tag = "SAVED_HIGHLIGHT",
-                    annotation = "${item.text}@@KEY@@legacy:${item.text}",
-                    start = startIndex,
-                    end = startIndex + wordLower.length
-                )
-                startIndex = plainLower.indexOf(wordLower, startIndex + 1)
+            val plainString = this.toAnnotatedString().text
+            val plainLength = plainString.length
+
+            // Saved highlights
+            lineHighlights.forEach { item ->
+                val localStart = item.start - prefixLen
+                val localEnd = item.end - prefixLen
+                if (localStart in 0 until plainLength && localEnd in (localStart + 1)..plainLength) {
+                    addStyle(
+                        style = SpanStyle(background = highlightBgColor, color = highlightTextColor, fontWeight = FontWeight.SemiBold),
+                        start = localStart,
+                        end = localEnd
+                    )
+                    addStringAnnotation(
+                        tag = "SAVED_HIGHLIGHT",
+                        annotation = "${item.text}@@KEY@@${item.line}:${item.start}:${item.end}",
+                        start = localStart,
+                        end = localEnd
+                    )
+                }
             }
-        }
-        
-        if (highlightQuery.isNotBlank()) {
-            val queryLower = highlightQuery.lowercase()
-            var startIndex = plainLower.indexOf(queryLower)
-            
-            while (startIndex >= 0) {
-                addStyle(
-                    style = SpanStyle(background = Color.Yellow, color = Color.Black),
-                    start = startIndex,
-                    end = startIndex + queryLower.length
-                )
-                startIndex = plainLower.indexOf(queryLower, startIndex + 1)
+
+            // Legacy highlights
+            val plainLower = plainString.lowercase()
+            legacyHighlights.forEach { item ->
+                val wordLower = item.text.lowercase()
+                if (wordLower.isBlank()) return@forEach
+                var startIndex = plainLower.indexOf(wordLower)
+                while (startIndex >= 0) {
+                    addStyle(
+                        style = SpanStyle(background = highlightBgColor, color = highlightTextColor, fontWeight = FontWeight.SemiBold),
+                        start = startIndex,
+                        end = startIndex + wordLower.length
+                    )
+                    addStringAnnotation(
+                        tag = "SAVED_HIGHLIGHT",
+                        annotation = "${item.text}@@KEY@@legacy:${item.text}",
+                        start = startIndex,
+                        end = startIndex + wordLower.length
+                    )
+                    startIndex = plainLower.indexOf(wordLower, startIndex + 1)
+                }
+            }
+
+            // Query highlights
+            if (highlightQuery.isNotBlank()) {
+                val queryLower = highlightQuery.lowercase()
+                var startIndex = plainLower.indexOf(queryLower)
+                while (startIndex >= 0) {
+                    addStyle(
+                        style = SpanStyle(background = Color.Yellow, color = Color.Black),
+                        start = startIndex,
+                        end = startIndex + queryLower.length
+                    )
+                    startIndex = plainLower.indexOf(queryLower, startIndex + 1)
+                }
             }
         }
     }
-    
+
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
     var windowBounds by remember { mutableStateOf<Rect?>(null) }
 

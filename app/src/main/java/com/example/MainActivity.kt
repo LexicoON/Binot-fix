@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -60,6 +61,7 @@ import com.example.ui.screens.ResultScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.TrashScreen
 import com.example.ui.theme.BinotTheme
+import com.example.ui.theme.ColorStyle
 import com.example.utils.ImportExportHelper
 import com.example.viewmodel.HistoryViewModel
 import com.example.viewmodel.RecordViewModel
@@ -69,13 +71,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    
-    // Penampung reaktif URI yang datang dari luar (WhatsApp / File Manager)
+
     val incomingIntentUri = MutableStateFlow<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         enableEdgeToEdge()
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -83,25 +84,28 @@ class MainActivity : ComponentActivity() {
 
         val appContainer = (application as BinotApplication).container
 
-        // Tangkap intent saat app baru dinyalakan
         handleIntent(intent)
 
         setContent {
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.provideFactory(
-                    appContainer.settingsRepository, 
+                    appContainer.settingsRepository,
                     appContainer.noteRepository
                 )
             )
             val themeMode by settingsViewModel.themeMode.collectAsState()
+            val colorStyleInt by settingsViewModel.colorStyle.collectAsState()
+            val colorStyle = ColorStyle.entries.getOrElse(colorStyleInt) { ColorStyle.TONAL_SPOT }
 
-            BinotTheme(themeMode = themeMode) {
+            BinotTheme(
+                themeMode = themeMode,
+                colorStyle = colorStyle
+            ) {
                 BinotApp(appContainer, settingsViewModel, this)
             }
         }
     }
 
-    // Tangkap intent saat app udah jalan (SingleTask)
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
@@ -126,8 +130,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    
-    // State Tracker untuk "Open With" dari WA
+
     val incomingUri by mainActivity.incomingIntentUri.collectAsState()
     var isImportingFromExternal by remember { mutableStateOf(false) }
 
@@ -140,14 +143,13 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
     val snackbarHostState = remember { SnackbarHostState() }
     val isRecordingGlobal by appContainer.audioRecorderManager.isRecording.collectAsState()
 
-    // Eksekutor "Open With"
     LaunchedEffect(incomingUri) {
         incomingUri?.let { uri ->
             isImportingFromExternal = true
             val newId = ImportExportHelper.importFile(context, uri, appContainer.noteRepository)
-            mainActivity.incomingIntentUri.value = null // Reset biar ga loop
+            mainActivity.incomingIntentUri.value = null
             isImportingFromExternal = false
-            
+
             if (newId != null) {
                 navController.navigate("result/$newId")
             } else {
@@ -156,15 +158,14 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
         }
     }
 
+    val tabFadeSpec = spring<Float>(dampingRatio = 1.0f, stiffness = 1600f)
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             if (currentRoute in listOf("record", "history", "settings")) {
-                // M3 Expressive: ShortNavigationBar replaces the baseline NavigationBar
-                // for compact (phone) screens. It uses the expressive motion scheme to
-                // morph the selected pill indicator with spring physics.
                 ShortNavigationBar {
                     ShortNavigationBarItem(
                         selected = currentRoute == "record",
@@ -211,30 +212,43 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
     ) { innerPadding ->
         SharedTransitionLayout {
             NavHost(
-                navController = navController, 
+                navController = navController,
                 startDestination = startDestination,
                 modifier = Modifier.padding(innerPadding),
                 enterTransition = {
-                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeIn(tween(0)) else fadeIn(tween(300))
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true)
+                        fadeIn(tween(0))
+                    else
+                        fadeIn(tabFadeSpec)
                 },
                 exitTransition = {
-                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeOut(tween(0)) else fadeOut(tween(300))
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true)
+                        fadeOut(tween(0))
+                    else
+                        fadeOut(tabFadeSpec)
                 },
                 popEnterTransition = {
-                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeIn(tween(0)) else fadeIn(tween(300))
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true)
+                        fadeIn(tween(0))
+                    else
+                        fadeIn(tabFadeSpec)
                 },
                 popExitTransition = {
-                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true) fadeOut(tween(0)) else fadeOut(tween(300))
+                    if (targetState.destination.route?.startsWith("result") == true || initialState.destination.route?.startsWith("result") == true)
+                        fadeOut(tween(0))
+                    else
+                        fadeOut(tabFadeSpec)
                 }
             ) {
                 composable("onboarding") {
                     OnboardingScreen(
-                        onComplete = { name, provider, key, task, format ->
+                        onComplete = { name, provider, key, task, format, compression ->
                             settingsViewModel.saveUserName(name)
                             settingsViewModel.saveAiProvider(provider)
                             if (provider == 0) settingsViewModel.saveApiKey(key) else settingsViewModel.saveGroqApiKey(key)
                             settingsViewModel.saveAiTask(task)
                             settingsViewModel.saveAiFormat(format)
+                            settingsViewModel.saveAutoCompressionMode(compression)
                             navController.navigate("record") { popUpTo("onboarding") { inclusive = true } }
                         }
                     )
@@ -246,7 +260,14 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                     val aiProvider by settingsViewModel.aiProvider.collectAsState()
 
                     val recordViewModel: RecordViewModel = viewModel(
-                        factory = RecordViewModel.provideFactory(appContainer.audioRecorderManager, appContainer.noteRepository, apiKey, groqApiKey, context.applicationContext, appContainer.settingsRepository)
+                        factory = RecordViewModel.provideFactory(
+                            appContainer.audioRecorderManager,
+                            appContainer.noteRepository,
+                            apiKey,
+                            groqApiKey,
+                            context.applicationContext,
+                            appContainer.settingsRepository
+                        )
                     )
                     RecordScreen(
                         viewModel = recordViewModel,
@@ -256,12 +277,16 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         snackbarHostState = snackbarHostState,
                         animatedVisibilityScope = this@composable,
                         sharedTransitionScope = this@SharedTransitionLayout,
-                        onNoteClick = { id -> navController.navigate("result/$id") }
+                        onNoteClick = { id -> navController.navigate("result/$id") },
+                        onImportFile = { uri -> ImportExportHelper.importFile(context, uri, appContainer.noteRepository) }
                     )
                 }
                 composable("history") {
                     val historyViewModel: HistoryViewModel = viewModel(
-                        factory = HistoryViewModel.provideFactory(appContainer.noteRepository)
+                        factory = HistoryViewModel.provideFactory(
+                            repository = appContainer.noteRepository,
+                            labelRepository = appContainer.labelRepository
+                        )
                     )
                     HistoryScreen(
                         viewModel = historyViewModel,
@@ -274,7 +299,10 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                 }
                 composable("trash") {
                     val historyViewModel: HistoryViewModel = viewModel(
-                        factory = HistoryViewModel.provideFactory(appContainer.noteRepository)
+                        factory = HistoryViewModel.provideFactory(
+                            repository = appContainer.noteRepository,
+                            labelRepository = appContainer.labelRepository
+                        )
                     )
                     TrashScreen(
                         viewModel = historyViewModel,
@@ -286,7 +314,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         viewModel = settingsViewModel,
                         animatedVisibilityScope = this@composable,
                         isRecording = isRecordingGlobal,
-                        onDiscardRecording = { 
+                        onDiscardRecording = {
                             val path = appContainer.audioRecorderManager.stopRecording()
                             if (path != null) try { java.io.File(path).delete() } catch (e: Exception) {}
                         }
@@ -294,12 +322,14 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                 }
                 composable("result/{noteId}") { backStackEntry ->
                     val noteId = backStackEntry.arguments?.getString("noteId")?.toIntOrNull() ?: return@composable
-                    
+
                     val resultViewModel: ResultViewModel = viewModel(
                         factory = ResultViewModel.provideFactory(
-                            noteId = noteId, 
-                            repository = appContainer.noteRepository, 
-                            settingsRepository = appContainer.settingsRepository
+                            noteId = noteId,
+                            repository = appContainer.noteRepository,
+                            settingsRepository = appContainer.settingsRepository,
+                            labelRepository = appContainer.labelRepository,
+                            appContext = context.applicationContext
                         )
                     )
                     ResultScreen(
@@ -311,20 +341,19 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                     )
                 }
             }
-            
-            // Screen Pelindung Loading saat nge-import dari WhatsApp
+
             if (isImportingFromExternal) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
-                        .clickable(enabled = false) {}, // Blok klik
+                        .clickable(enabled = false) {},
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         Text(
-                            text = "Unpacking Binot...", 
+                            text = "Unpacking Obinot...",
                             modifier = Modifier.padding(top = 16.dp),
                             color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.titleMedium

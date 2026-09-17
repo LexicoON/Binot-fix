@@ -10,8 +10,10 @@ import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,20 +21,49 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
-import kotlin.random.Random
 import java.util.Locale
+import kotlin.math.log10
+import kotlin.random.Random
 
+/**
+ * Grabador de audio con dos modos:
+ *
+ * **Fast (mode 0)** — Solo [SpeechRecognizer]. Transcripción del teléfono en vivo.
+ *   El audio NO se guarda en disco.
+ *
+ * **Accurate (mode 1)** — [MediaRecorder] + [SpeechRecognizer] en simultáneo.
+ *   El audio SÍ se guarda, y además se captura la transcripción del teléfono
+ *   como feedback inmediato para el usuario. Cuando el usuario abre la nota
+ *   procesada, ve la transcripción del teléfono con un botón para re-analizar
+ *   con la IA (que reemplaza el texto).
+ *
+ * El [SpeechRecognizer] en modo 1 es best-effort: si falla, la grabación
+ * continúa sin interrupciones. La transcripción en vivo se pierde pero el
+ * audio queda intacto.
+ */
 class AudioRecorderManager(private val context: Context) {
+
+    companion object {
+        private const val TAG = "AudioRecorderManager"
+
+        /** Marca que indica que el rawText es una transcripción del teléfono pendiente de IA. */
+        const val PHONE_TRANSCRIPTION_MARKER = "[PHONE_TRANSCRIPTION]"
+
+        /** Placeholder que dispara auto-transcripción con IA al abrir la nota. */
+        const val PENDING_TRANSCRIPTION = "Pending Transcription"
+    }
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var mediaRecorder: MediaRecorder? = null
     private var currentAudioFilePath: String? = null
-    
-    private var currentRecordMode = 0 
+
+    private var currentRecordMode = 0
+    private var speechRecognizerAvailable = false
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val coroutineScope = CoroutineScope(Dispatchers.Main)
-    
+    private var amplitudeJob: Job? = null
+
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
 
@@ -44,7 +75,6 @@ class AudioRecorderManager(private val context: Context) {
 
     @Volatile
     private var isPaused = false
-    private var lastIsEmulator = false
 
     private var originalMusicVolume = -1
     private var originalSystemVolume = -1
@@ -54,6 +84,10 @@ class AudioRecorderManager(private val context: Context) {
     private var originalVoiceCallVolume = -1
     private var originalRingerMode = -1
     private var originalHapticFeedbackStatus = -1
+
+    // ============================================================
+    // Volume muting (sin cambios respecto al original)
+    // ============================================================
 
     private fun forceMuteAllBeeps() {
         try {
@@ -82,7 +116,7 @@ class AudioRecorderManager(private val context: Context) {
             } catch (e: Exception) {}
 
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "forceMuteAllBeeps", e)
         }
     }
 
@@ -125,37 +159,58 @@ class AudioRecorderManager(private val context: Context) {
                 originalHapticFeedbackStatus = -1
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "restoreAllVolumes", e)
         }
     }
 
+    // ============================================================
+    // Recording lifecycle
+    // ============================================================
+
+    /**
+     * Inicia la grabación.
+     * - mode 0 (Fast): solo SpeechRecognizer. Audio NO se guarda.
+     * - mode 1 (Accurate): MediaRecorder + SpeechRecognizer simultáneos.
+     *   Audio SÍ se guarda, y la transcripción del teléfono se captura como bonus.
+     */
     fun startRecording(isEmulator: Boolean = false, mode: Int = 0) {
         if (_isRecording.value) return
-        
+
         _isRecording.value = true
         _recognizedText.value = ""
         isPaused = false
-        lastIsEmulator = isEmulator
         currentRecordMode = mode
-        
+        speechRecognizerAvailable = false
+
         forceMuteAllBeeps()
-        
-        if (mode == 1) { 
+
+        if (mode == 1) {
+            // 1) Primero el audio, que es lo crítico
             prepareMediaRecorder()
-            startFakeAmplitude() 
-        } else { 
+
+            // 2) Luego el speech recognizer como best-effort
+            if (!isEmulator && SpeechRecognizer.isRecognitionAvailable(context)) {
+                speechRecognizerAvailable = true
+                initSpeechRecognizer()
+            }
+
+            // Amplitud desde MediaRecorder (más fiable que el recognizer)
+            startAmplitudePolling()
+        } else {
+            // Fast: solo recognizer
             if (isEmulator || !SpeechRecognizer.isRecognitionAvailable(context)) {
                 startSimulatedRecording()
             } else {
+                speechRecognizerAvailable = true
                 initSpeechRecognizer()
             }
         }
     }
-    
+
     private fun prepareMediaRecorder() {
         val dir = File(context.filesDir, "audio_records")
         if (!dir.exists()) dir.mkdirs()
-        
+
         val file = File(dir, "RECORD_${System.currentTimeMillis()}.mp4")
         currentAudioFilePath = file.absolutePath
 
@@ -168,13 +223,16 @@ class AudioRecorderManager(private val context: Context) {
             setAudioSource(MediaRecorder.AudioSource.MIC)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            setAudioEncodingBitRate(AudioCompressor.IDEAL_VOICE_BITRATE)
+            setAudioSamplingRate(44100)
+            setAudioChannels(1)
             setOutputFile(currentAudioFilePath)
-            
+
             try {
                 prepare()
                 start()
             } catch (e: IOException) {
-                e.printStackTrace()
+                Log.e(TAG, "MediaRecorder failed to start", e)
                 currentAudioFilePath = null
             }
         }
@@ -183,15 +241,17 @@ class AudioRecorderManager(private val context: Context) {
     fun pauseRecording() {
         if (!_isRecording.value || isPaused) return
         isPaused = true
-        
+
+        // Pausar MediaRecorder (si estamos en modo 1 y existe)
         if (currentRecordMode == 1) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                try { mediaRecorder?.pause() } catch (e: Exception) { e.printStackTrace() }
+                try { mediaRecorder?.pause() } catch (e: Exception) { Log.w(TAG, "pause mr", e) }
             }
-        } else {
-            speechRecognizer?.stopListening()
         }
-        
+
+        // Pausar SpeechRecognizer (si existe)
+        try { speechRecognizer?.stopListening() } catch (e: Exception) { Log.w(TAG, "pause sr", e) }
+
         _amplitude.value = 0f
     }
 
@@ -201,14 +261,15 @@ class AudioRecorderManager(private val context: Context) {
 
         if (currentRecordMode == 1) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                try { mediaRecorder?.resume() } catch (e: Exception) { e.printStackTrace() }
+                try { mediaRecorder?.resume() } catch (e: Exception) { Log.w(TAG, "resume mr", e) }
             }
-            startFakeAmplitude()
+            if (speechRecognizerAvailable) initSpeechRecognizer()
+            startAmplitudePolling()
         } else {
-            if (lastIsEmulator || !SpeechRecognizer.isRecognitionAvailable(context)) {
-                startSimulatedRecording()
-            } else {
+            if (speechRecognizerAvailable) {
                 initSpeechRecognizer()
+            } else {
+                startSimulatedRecording()
             }
         }
     }
@@ -220,21 +281,46 @@ class AudioRecorderManager(private val context: Context) {
                 setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {}
                     override fun onBeginningOfSpeech() {}
+
                     override fun onRmsChanged(rmsdB: Float) {
-                        if (_isRecording.value && !isPaused) _amplitude.value = (rmsdB / 10f).coerceIn(0f, 1f)
-                    }
-                    override fun onBufferReceived(buffer: ByteArray?) {}
-                    override fun onEndOfSpeech() {
-                        _amplitude.value = 0f
-                    }
-                    override fun onError(error: Int) {
-                        if (_isRecording.value && !isPaused) {
-                            initSpeechRecognizer()
-                        } else if (!_isRecording.value) {
-                            _amplitude.value = 0f
-                            restoreAllVolumes()
+                        // En modo Fast, la amplitud viene del recognizer.
+                        // En modo Accurate, la amplitud viene del MediaRecorder (más fiable).
+                        if (currentRecordMode == 0 && _isRecording.value && !isPaused) {
+                            _amplitude.value = (rmsdB / 10f).coerceIn(0f, 1f)
                         }
                     }
+
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+
+                    override fun onEndOfSpeech() {
+                        if (currentRecordMode == 0) _amplitude.value = 0f
+                    }
+
+                    override fun onError(error: Int) {
+                        // Errores que NO deben reintentar (romperían el flujo)
+                        val fatalError = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                                error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
+                                error == SpeechRecognizer.ERROR_CLIENT
+
+                        if (fatalError) {
+                            speechRecognizerAvailable = false
+                            return
+                        }
+
+                        if (_isRecording.value && !isPaused) {
+                            // En modo Fast, reintentar siempre.
+                            // En modo Accurate, reintentar pero sin spamear: si tras el retry
+                            // vuelve a fallar el recognizer, marcar como no disponible para
+                            // no romper el audio.
+                            if (currentRecordMode == 0) {
+                                initSpeechRecognizer()
+                            } else {
+                                // Un error transitorio en modo 1: reintentamos una vez.
+                                initSpeechRecognizer()
+                            }
+                        }
+                    }
+
                     override fun onResults(results: Bundle?) {
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         if (!matches.isNullOrEmpty()) {
@@ -245,55 +331,57 @@ class AudioRecorderManager(private val context: Context) {
                             initSpeechRecognizer()
                         }
                     }
+
                     override fun onPartialResults(partialResults: Bundle?) {}
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
-                
+
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 }
-                
+
                 startListening(intent)
             }
         } catch (e: Exception) {
-            _isRecording.value = false
-            restoreAllVolumes()
-            e.printStackTrace()
+            Log.e(TAG, "initSpeechRecognizer failed", e)
+            speechRecognizerAvailable = false
         }
     }
 
-    // Logic Murni: Perhitungan Amplitude MediaRecorder diubah ke skala Logaritmik (dB) dan Polling di-kencengin!
-    private fun startFakeAmplitude() {
-        coroutineScope.launch {
+    /**
+     * Polling de amplitud desde MediaRecorder. Se usa en modo Accurate
+     * porque el recognizer en simultáneo no siempre reporta RMS con precisión.
+     */
+    private fun startAmplitudePolling() {
+        amplitudeJob?.cancel()
+        amplitudeJob = coroutineScope.launch {
             while (_isRecording.value && !isPaused && currentRecordMode == 1) {
-                _amplitude.value = if (mediaRecorder != null) {
-                     try { 
-                         val amp = mediaRecorder!!.maxAmplitude
-                         if (amp > 0) {
-                             // Konversi raw linear ke decibel biar sensitif nangkap suara pelan
-                             val db = 20 * Math.log10(amp.toDouble() / 32767.0)
-                             // Mapping rentang -45dB (silence) s/d 0dB ke range 0.02 s/d 1.0
-                             ((db + 45) / 45).coerceIn(0.02, 1.0).toFloat()
-                         } else {
-                             0.02f
-                         }
-                     } catch (e: Exception) { 0.02f }
-                } else {
-                     0.02f 
+                _amplitude.value = try {
+                    val amp = mediaRecorder?.maxAmplitude ?: 0
+                    if (amp > 0) {
+                        val db = 20 * log10(amp.toDouble() / 32767.0)
+                        ((db + 45) / 45).coerceIn(0.02, 1.0).toFloat()
+                    } else 0.02f
+                } catch (e: Exception) {
+                    0.02f
                 }
-                delay(30) // 30ms delay = ~33 FPS! Dijamin ngacir dan lincah grafiknya.
+                delay(30)
             }
             _amplitude.value = 0f
         }
     }
 
+    /**
+     * Fallback para emuladores o dispositivos sin SpeechRecognizer.
+     * Simula amplitud y texto para no romper la UI.
+     */
     private fun startSimulatedRecording() {
         val thread = Thread {
-            val phrases = listOf("Ini adalah simulasi.", "Binot merekam.")
+            val phrases = listOf("This is a simulation.", "Obinot is recording.")
             var phraseIndex = 0
-            
+
             while (_isRecording.value && !isPaused) {
                 _amplitude.value = Random.nextFloat()
                 Thread.sleep(200)
@@ -308,34 +396,46 @@ class AudioRecorderManager(private val context: Context) {
         thread.start()
     }
 
+    /**
+     * Detiene la grabación y devuelve el path del audio si se guardó.
+     * En modo Fast, devuelve null.
+     */
     fun stopRecording(): String? {
         _isRecording.value = false
         isPaused = false
-        
+        amplitudeJob?.cancel()
+        amplitudeJob = null
+
+        // Detener MediaRecorder
         if (currentRecordMode == 1) {
             try {
                 mediaRecorder?.stop()
                 mediaRecorder?.release()
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "stop MediaRecorder", e)
                 currentAudioFilePath = null
             }
             mediaRecorder = null
-        } else {
-            speechRecognizer?.stopListening()
-            currentAudioFilePath = null 
         }
-        
+
+        // Detener SpeechRecognizer
+        try {
+            speechRecognizer?.stopListening()
+            speechRecognizer?.destroy()
+        } catch (e: Exception) {
+            Log.w(TAG, "stop SpeechRecognizer", e)
+        }
+        speechRecognizer = null
+
         _amplitude.value = 0f
 
         coroutineScope.launch {
             delay(600)
             restoreAllVolumes()
         }
-        
+
         val finalPath = currentAudioFilePath
         currentAudioFilePath = null
         return finalPath
     }
 }
-

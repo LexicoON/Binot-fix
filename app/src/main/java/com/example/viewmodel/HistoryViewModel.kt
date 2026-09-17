@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.GithubRelease
+import com.example.data.LabelEntity
+import com.example.data.LabelRepository
 import com.example.data.NoteEntity
 import com.example.data.NoteRepository
 import com.example.data.RetrofitClient
@@ -21,7 +23,10 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
-class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
+class HistoryViewModel(
+    private val repository: NoteRepository,
+    private val labelRepository: LabelRepository
+) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -38,16 +43,20 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
     private val _latestRelease = MutableStateFlow<GithubRelease?>(null)
     val latestRelease: StateFlow<GithubRelease?> = _latestRelease.asStateFlow()
 
+    /** Map label name → hex color. Vacío si aún no se cargó. */
+    val labelColors: StateFlow<Map<String, String>> = labelRepository.allLabels
+        .map { labels -> labels.associate { it.name to it.colorHex } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     val trashedNotes: StateFlow<List<NoteEntity>> = repository.trashedNotes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // LOGIKA FIX: Pastikan customLabels di-trim biar tidak ada bug spasi tak terlihat
     val uniqueLabels: StateFlow<List<String>> = repository.allNotes.map { notes ->
         val systemNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
         val customLabels = systemNote?.rawText?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
         val noteLabels = notes.filter { it.title != "[[BINOT_SYSTEM_LABELS]]" }
             .flatMap { it.label?.split("|")?.map { l -> l.trim() }?.filter { l -> l.isNotBlank() } ?: emptyList() }
-        
+
         (customLabels + noteLabels).distinct().sorted()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -82,6 +91,43 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    init {
+        // Sincroniza el catálogo de labels con los labels existentes en notas.
+        // INSERT OR IGNORE, así que es idempotente. Si un label se crea desde el sistema
+        // viejo (system note), acá se le asigna color default automáticamente.
+        viewModelScope.launch(Dispatchers.IO) {
+            uniqueLabels.collect { labels ->
+                if (labels.isNotEmpty()) {
+                    try {
+                        labelRepository.ensureLabelsExist(labels)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // Label color API
+    // ============================================================
+
+    /** Asigna un color a un label existente. */
+    fun setLabelColor(label: String, colorHex: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            labelRepository.updateColor(label.trim(), colorHex)
+        }
+    }
+
+    /** Devuelve el color asignado a un label, o DEFAULT_COLOR si no existe. */
+    fun getLabelColor(label: String): String {
+        return labelColors.value[label] ?: LabelEntity.DEFAULT_COLOR
+    }
+
+    // ============================================================
+    // Label filters
+    // ============================================================
 
     fun toggleLabelFilter(label: String) {
         if (_isMultiSelectLabelMode.value) {
@@ -118,20 +164,23 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
         _sortMode.value = mode
     }
 
-    fun createIndependentLabel(label: String) {
-        // LOGIKA FIX: Bersihkan label dari karakter | dan spasi kosong
+    // ============================================================
+    // Label CRUD (sincronizado con LabelRepository)
+    // ============================================================
+
+    fun createIndependentLabel(label: String, colorHex: String = LabelEntity.DEFAULT_COLOR) {
         val cleanLabel = label.replace("|", "").trim()
         if (cleanLabel.isBlank()) return
-        
+
         viewModelScope.launch(Dispatchers.IO) {
             val notes = repository.getAllNotesSync()
             val sysNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
-            
+
+            // 1. Actualizar/crear la nota sintética
             if (sysNote != null) {
                 val existingLabels = sysNote.rawText.split("|").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
                 if (!existingLabels.contains(cleanLabel)) {
                     existingLabels.add(cleanLabel)
-                    // LOGIKA FIX: Update timestamp secara paksa agar Flow & Room memicu perubahan UI
                     repository.update(sysNote.copy(
                         rawText = existingLabels.joinToString("|"),
                         timestamp = System.currentTimeMillis()
@@ -139,13 +188,16 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
                 }
             } else {
                 val newSysNote = NoteEntity(
-                    title = "[[BINOT_SYSTEM_LABELS]]", 
-                    rawText = cleanLabel, 
+                    title = "[[BINOT_SYSTEM_LABELS]]",
+                    rawText = cleanLabel,
                     summary = null,
                     timestamp = System.currentTimeMillis()
                 )
                 repository.insert(newSysNote)
             }
+
+            // 2. Crear la entrada en el catálogo con su color
+            labelRepository.createLabel(cleanLabel, colorHex)
         }
     }
 
@@ -153,10 +205,11 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
         val cleanOld = oldLabel.trim()
         val cleanNew = newLabel.replace("|", "").trim()
         if (cleanOld.isBlank() || cleanNew.isBlank() || cleanOld == cleanNew) return
-        
+
         viewModelScope.launch(Dispatchers.IO) {
             val notes = repository.getAllNotesSync()
 
+            // 1. Actualizar todas las notas que usan el label viejo
             notes.filter { it.title != "[[BINOT_SYSTEM_LABELS]]" }.forEach { note ->
                 val labels = note.label?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
                 if (labels.contains(cleanOld)) {
@@ -168,6 +221,7 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
                 }
             }
 
+            // 2. Actualizar la nota sintética
             val sysNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
             if (sysNote != null) {
                 val existingLabels = sysNote.rawText.split("|").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
@@ -180,6 +234,19 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
                 }
             }
 
+            // 3. Renombrar en el catálogo de colores.
+            // Importante: como LabelEntity tiene name como PK, renombrar equivale a
+            // borrar el viejo y crear el nuevo. Preservamos el color.
+            val oldEntity = labelRepository.getLabel(cleanOld)
+            if (oldEntity != null) {
+                labelRepository.deleteLabel(cleanOld)
+                labelRepository.createLabel(cleanNew, oldEntity.colorHex)
+            } else {
+                // Si no existía en el catálogo, lo creamos con color default
+                labelRepository.createLabel(cleanNew)
+            }
+
+            // 4. Actualizar filtro activo si corresponde
             if (cleanOld in _selectedLabels.value) {
                 _selectedLabels.value = (_selectedLabels.value - cleanOld) + cleanNew
             }
@@ -189,10 +256,11 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
     fun deleteLabel(label: String) {
         val cleanLabel = label.trim()
         if (cleanLabel.isBlank()) return
-        
+
         viewModelScope.launch(Dispatchers.IO) {
             val notes = repository.getAllNotesSync()
 
+            // 1. Quitar el label de todas las notas
             notes.filter { it.title != "[[BINOT_SYSTEM_LABELS]]" }.forEach { note ->
                 val labels = note.label?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
                 if (labels.contains(cleanLabel)) {
@@ -205,6 +273,7 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
                 }
             }
 
+            // 2. Quitar de la nota sintética
             val sysNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
             if (sysNote != null) {
                 val existingLabels = sysNote.rawText.split("|").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
@@ -220,14 +289,22 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
                 }
             }
 
+            // 3. Borrar del catálogo de colores
+            labelRepository.deleteLabel(cleanLabel)
+
+            // 4. Quitar del filtro activo
             if (cleanLabel in _selectedLabels.value) {
                 _selectedLabels.value = _selectedLabels.value - cleanLabel
             }
         }
     }
 
+    // ============================================================
+    // App update
+    // ============================================================
+
     fun checkForAppUpdate(currentVersion: String) {
-        if (_latestRelease.value != null) return 
+        if (_latestRelease.value != null) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val release = RetrofitClient.githubService.getLatestRelease()
@@ -257,6 +334,10 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
     }
+
+    // ============================================================
+    // Trash / Undo / Bulk ops
+    // ============================================================
 
     private val _recentlyDeleted = MutableStateFlow<List<NoteEntity>>(emptyList())
     val recentlyDeleted: StateFlow<List<NoteEntity>> = _recentlyDeleted.asStateFlow()
@@ -293,7 +374,7 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
 
     fun deletePermanentlyMultiple(ids: Set<Int>) {
         viewModelScope.launch {
-            ids.forEach { repository.deleteById(it) }
+            ids.forEach { id -> repository.deleteById(id) }
         }
     }
 
@@ -345,11 +426,14 @@ class HistoryViewModel(private val repository: NoteRepository) : ViewModel() {
     }
 
     companion object {
-        fun provideFactory(repository: NoteRepository): ViewModelProvider.Factory =
+        fun provideFactory(
+            repository: NoteRepository,
+            labelRepository: LabelRepository
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return HistoryViewModel(repository) as T
+                    return HistoryViewModel(repository, labelRepository) as T
                 }
             }
     }

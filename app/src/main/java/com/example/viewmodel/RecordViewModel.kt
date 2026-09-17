@@ -6,8 +6,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.Content
 import com.example.data.GenerateContentRequest
+import com.example.data.GeminiModels
 import com.example.data.GroqChatRequest
 import com.example.data.GroqMessage
+import com.example.data.GroqModels
 import com.example.data.NoteEntity
 import com.example.data.NoteRepository
 import com.example.data.Part
@@ -47,7 +49,6 @@ class RecordViewModel(
 
     private var pendingAudioPath: String? = null
 
-    // State untuk 16 Catatan Terbaru
     private val _recentNotes = MutableStateFlow<List<NoteEntity>>(emptyList())
     val recentNotes: StateFlow<List<NoteEntity>> = _recentNotes.asStateFlow()
     private var pollJob: Job? = null
@@ -61,14 +62,14 @@ class RecordViewModel(
         pollJob = viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 try {
-                    // Tarik data secara sinkronus lalu ambil 16 terbaru
                     val notes = repository.getAllNotesSync()
-                    val latest16 = notes.sortedByDescending { it.timestamp }.take(16)
+                    val realNotes = notes.filterNot { it.title == "[[BINOT_SYSTEM_LABELS]]" }
+                    val latest16 = realNotes.sortedByDescending { it.timestamp }.take(16)
                     _recentNotes.value = latest16
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(1500) // Polling tiap 1.5 detik agar UI tetep update
+                delay(1500)
             }
         }
     }
@@ -154,10 +155,25 @@ class RecordViewModel(
     suspend fun saveNote(recordMode: Int, provider: Int = 0): Boolean {
         delay(300)
 
-        val text = if (recordMode == 1) "Pending Transcription" else recognizedText.value.trim()
         val path = pendingAudioPath
 
-        // Mencegah save kalau mode Google tapi teksnya kosong
+        // Modo Accurate (1): guardamos el audio y, si el recognizer del teléfono
+        // alcanzó a capturar algo, se adjunta como transcripción preliminar con
+        // un marcador. El ResultViewModel lo detecta y ofrece re-analizar con IA.
+        // Si no hay texto del teléfono, se guarda como "Pending Transcription"
+        // y se procesa automáticamente al abrir.
+        val text = if (recordMode == 1) {
+            val phoneText = recognizedText.value.trim()
+            if (phoneText.isNotEmpty()) {
+                "${AudioRecorderManager.PHONE_TRANSCRIPTION_MARKER}\n$phoneText"
+            } else {
+                AudioRecorderManager.PENDING_TRANSCRIPTION
+            }
+        } else {
+            recognizedText.value.trim()
+        }
+
+        // Mencegah save kalau modo Fast tapi teksnya kosong
         if (recordMode == 0 && text.isEmpty()) {
             return false
         }
@@ -172,55 +188,65 @@ class RecordViewModel(
 
         val id = withContext(Dispatchers.IO) { repository.insert(note).toInt() }
 
-        // MIX (provider == 2): titles use Groq (fast, lightweight), same as ResultViewModel
-        val effectiveProvider = if (provider == 2) 1 else provider
-        val apiKey = if (effectiveProvider == 1) groqApiKey else geminiApiKey
-
-        if (apiKey.isNotBlank() && recordMode == 0) {
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val prompt = """
-                        Buat judul singkat 3-5 kata dalam bahasa yang sama dengan teks berikut.
-                        RULES:
-                        - Hanya output judulnya saja, tanpa tanda kutip, tanpa penjelasan apapun.
-                        - Maksimal 5 kata, padat dan informatif.
-                        - Gunakan bahasa yang sama dengan teks input.
-                        Teks: ${text.take(500)}
-                    """.trimIndent()
-                    val aiTitle = if (effectiveProvider == 1) {
-                        // Groq path
-                        val request = GroqChatRequest(
-                            model = "openai/gpt-oss-20b",
-                            messages = listOf(
-                                GroqMessage(role = "system", content = "You are a title generator. Output ONLY a 3-5 word title in the same language as the input. No quotes, no explanation."),
-                                GroqMessage(role = "user", content = prompt)
-                            )
-                        )
-                        RetrofitClient.groqService.generateContent("Bearer $apiKey", request)
-                            .choices?.firstOrNull()?.message?.content?.trim()
-                    } else {
-                        // Gemini path
-                        val request = GenerateContentRequest(
-                            contents = listOf(Content(parts = listOf(Part(text = prompt))))
-                        )
-                        RetrofitClient.service.generateContent(apiKey, request)
-                            .candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
-                    }
-
-                    if (!aiTitle.isNullOrBlank()) {
-                        val savedNote = repository.getNoteById(id)
-                        if (savedNote != null) {
-                            repository.update(savedNote.copy(title = aiTitle))
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        // MIX (provider == 2): títulos se alternan entre Groq y Gemini para repartir carga.
+        // Fuera de Mix, se usa el provider directo.
+        if (provider == 2) {
+            val effectiveProvider = if (settingsRepository.incrementMixCounter() % 2 == 0) 0 else 1
+            val apiKey = if (effectiveProvider == 1) groqApiKey else geminiApiKey
+            if (apiKey.isNotBlank() && recordMode == 0) {
+                generateTitleForNote(id, text, effectiveProvider, apiKey)
+            }
+        } else {
+            val apiKey = if (provider == 1) groqApiKey else geminiApiKey
+            if (apiKey.isNotBlank() && recordMode == 0) {
+                generateTitleForNote(id, text, provider, apiKey)
             }
         }
 
         pendingAudioPath = null
         return true
+    }
+
+    private fun generateTitleForNote(noteId: Int, text: String, provider: Int, apiKey: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val systemPrompt = "You are a title generator. Output ONLY a 3-5 word title in the same language as the input. No quotes, no explanation."
+                val userPrompt = "Text:\n${text.take(500)}"
+
+                val aiTitle = if (provider == 1) {
+                    // Groq: modelo Lite para títulos
+                    val request = GroqChatRequest(
+                        model = GroqModels.GPT_OSS_20B,
+                        messages = listOf(
+                            GroqMessage(role = "system", content = systemPrompt),
+                            GroqMessage(role = "user", content = userPrompt)
+                        )
+                    )
+                    RetrofitClient.groqService.generateContent("Bearer $apiKey", request)
+                        .choices?.firstOrNull()?.message?.content?.trim()
+                } else {
+                    // Gemini: modelo Lite para títulos
+                    val request = GenerateContentRequest(
+                        systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
+                        contents = listOf(Content(parts = listOf(Part(text = userPrompt))))
+                    )
+                    RetrofitClient.service.generateContent(
+                        model = GeminiModels.FLASH_LITE,
+                        apiKey = apiKey,
+                        request = request
+                    ).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+                }
+
+                if (!aiTitle.isNullOrBlank()) {
+                    val savedNote = repository.getNoteById(noteId)
+                    if (savedNote != null) {
+                        repository.update(savedNote.copy(title = aiTitle))
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     override fun onCleared() {

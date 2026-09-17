@@ -1,14 +1,15 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -24,16 +25,19 @@ fun AudioWaveform(
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val tertiary = MaterialTheme.colorScheme.tertiary
-    
+
     // BOOST SENSITIVITAS: Dikali 2.5 biar mode accurate yang suaranya kecil tetep ngangkat, dilimit mentok di 1f
     val boostedAmplitude = (amplitude * 2.5f).coerceIn(0f, 1f)
 
-    // Spring animation untuk fluiditas
-    val animatedAmplitude by animateFloatAsState(
-        targetValue = boostedAmplitude,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "smoothAmplitude"
-    )
+    // Animatable en lugar de animateFloatAsState para que el valor se actualice
+    // tan pronto como cambia la amplitud (sin retargeting lag).
+    val animatedAmplitude = remember { Animatable(0f) }
+    LaunchedEffect(boostedAmplitude) {
+        animatedAmplitude.animateTo(
+            boostedAmplitude,
+            spring(stiffness = Spring.StiffnessMedium)
+        )
+    }
 
     Canvas(
         modifier = modifier
@@ -43,40 +47,36 @@ fun AudioWaveform(
         val canvasWidth = size.width
         val canvasHeight = size.height
         val centerY = canvasHeight / 2f
+        val amp = animatedAmplitude.value
 
         // 5 batang ekspresif
         val numBars = 5
-        val barWidth = 36.dp.toPx() 
+        val barWidth = 36.dp.toPx()
         val gap = 12.dp.toPx()
-        
-        // Kalkulasi posisi sentral
+
         val totalWaveWidth = (numBars * barWidth) + ((numBars - 1) * gap)
         val startX = (canvasWidth - totalWaveWidth) / 2f
 
-        val gradient = Brush.linearGradient(
-            colors = listOf(primary, tertiary)
-        )
+        val gradient = Brush.linearGradient(colors = listOf(primary, tertiary))
 
-        // Bobot asimetris biar gak kaku numpuk persis di tengah
         val weightMultipliers = listOf(0.5f, 0.9f, 1.0f, 0.8f, 0.6f)
 
         for (i in 0 until numBars) {
             val x = startX + (i * (barWidth + gap))
-            val baseHeight = 16.dp.toPx() 
-            
-            // VARIASI ORGANIK: Pake fungsi sin biar masing-masing batang punya goyangan unik waktu ada suara
-            val variation = if (animatedAmplitude > 0.05f) {
-                (sin(i * 1.5f + animatedAmplitude * 10f) * 0.15f) + 0.85f // Hasilin angka sekitar 0.7 - 1.0
+            val baseHeight = 16.dp.toPx()
+
+            val variation = if (amp > 0.05f) {
+                (sin(i * 1.5f + amp * 10f) * 0.15f) + 0.85f
             } else {
                 1f
             }
-            
-            val dynamicHeight = if (animatedAmplitude > 0f) {
-                baseHeight + (animatedAmplitude * (canvasHeight - baseHeight) * weightMultipliers[i] * variation.toFloat())
+
+            val dynamicHeight = if (amp > 0f) {
+                baseHeight + (amp * (canvasHeight - baseHeight) * weightMultipliers[i] * variation.toFloat())
             } else {
-                baseHeight 
+                baseHeight
             }
-            
+
             val finalHeight = dynamicHeight.coerceIn(baseHeight, canvasHeight)
             val yOffset = centerY - (finalHeight / 2f)
 

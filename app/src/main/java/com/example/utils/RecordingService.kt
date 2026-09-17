@@ -10,52 +10,62 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.widget.Toast
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.example.BinotApplication
 import com.example.MainActivity
 import com.example.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * This service does NOT own its own MediaRecorder. [AudioRecorderManager] is already an
- * app-wide singleton (see AppContainer), so recording itself keeps running exactly as
- * before regardless of whether this service exists. This service's only two jobs are:
- *  1) Hold an active foreground service of type "microphone" while recording is in
- *     progress, which is what lets Android keep giving the app mic access once the
- *     screen turns off or the app is no longer in the foreground.
- *  2) Show a persistent notification with the live elapsed recording time, so people
- *     know Binot is still recording for them in the background.
+ * Foreground service que mantiene la grabación viva cuando la pantalla se apaga
+ * o la app pasa a segundo plano.
  *
- * It's started when a recording begins (only if the "Record in background" toggle is
- * on) and stops itself automatically once AudioRecorderManager reports recording has
- * stopped, so it never lingers.
+ * NO posee su propio MediaRecorder — [AudioRecorderManager] es el que graba. Este servicio:
+ *  1) Sostiene un foreground service de tipo "microphone" para que Android no corte el acceso al mic.
+ *  2) Muestra una notificación persistente con el tiempo transcurrido.
+ *
+ * Se inicia cuando empieza una grabación (solo si el toggle "Record in background" está activo)
+ * y se detiene solo cuando AudioRecorderManager reporta que ya no está grabando.
  */
 class RecordingService : Service() {
 
     companion object {
-        private const val CHANNEL_ID = "binot_recording_channel"
+        private const val TAG = "RecordingService"
+        private const val CHANNEL_ID = "obinot_recording_channel"
         private const val NOTIFICATION_ID = 4821
+
         const val ACTION_START = "com.example.action.START_BACKGROUND_RECORDING"
         const val ACTION_STOP = "com.example.action.STOP_BACKGROUND_RECORDING"
+        const val ACTION_TOGGLE_PAUSE = "com.example.action.TOGGLE_PAUSE_RECORDING"
 
         fun start(context: Context) {
             val intent = Intent(context, RecordingService::class.java).apply { action = ACTION_START }
-            context.startForegroundService(intent)
+            try {
+                context.startForegroundService(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start service", e)
+            }
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, RecordingService::class.java).apply { action = ACTION_STOP }
-            context.startService(intent)
+            try {
+                context.startService(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to stop service", e)
+            }
         }
     }
 
     private var watcherJob: Job? = null
-    private val serviceScope = CoroutineScope(Dispatchers.Main)
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var elapsedSeconds = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -72,9 +82,6 @@ class RecordingService : Service() {
                 return START_NOT_STICKY
             }
             else -> {
-                // TEMP DIAGNOSTIC (remove once confirmed working): proves onStartCommand
-                // is actually being reached at all.
-                Toast.makeText(applicationContext, "RecordingService: onStartCommand reached", Toast.LENGTH_SHORT).show()
                 beginWatching()
             }
         }
@@ -82,22 +89,28 @@ class RecordingService : Service() {
     }
 
     private fun beginWatching() {
-        if (watcherJob != null) return // already running
+        if (watcherJob != null) return // Ya está corriendo
 
         elapsedSeconds = 0
+
         try {
             val notification = buildNotification(elapsedSeconds)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
+            // ServiceCompat maneja las diferencias entre API levels sin ramas manuales
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else {
+                    0
+                }
+            )
+            Log.d(TAG, "startForeground successful")
         } catch (e: Exception) {
-            // TEMP DIAGNOSTIC (remove once we confirm the notification shows correctly):
-            // if startForeground() is being blocked or throwing for any reason, this
-            // makes that visible on-device without needing adb/logcat.
-            Toast.makeText(applicationContext, "RecordingService failed: ${e.javaClass.simpleName}: ${e.message}", Toast.LENGTH_LONG).show()
-            e.printStackTrace()
+            Log.e(TAG, "startForeground failed: ${e.javaClass.simpleName}: ${e.message}", e)
+            stopSelfCleanly()
+            return
         }
 
         val audioRecorderManager = (applicationContext as BinotApplication).container.audioRecorderManager
@@ -106,7 +119,6 @@ class RecordingService : Service() {
             while (true) {
                 delay(1000)
                 if (!audioRecorderManager.isRecording.value) {
-                    // Recording was stopped from the app itself (or paused indefinitely) — clean up.
                     stopSelfCleanly()
                     break
                 }
@@ -119,22 +131,29 @@ class RecordingService : Service() {
     private fun stopSelfCleanly() {
         watcherJob?.cancel()
         watcherJob = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        try {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) {
+            Log.w(TAG, "stopForeground", e)
+        }
         stopSelf()
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Background Recording",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows recording progress while Binot records with the screen off or the app in the background."
-                setShowBadge(false)
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            val existing = manager.getNotificationChannel(CHANNEL_ID)
+            if (existing == null) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "Background Recording",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Muestra el progreso mientras Obinot graba con la pantalla apagada o la app en segundo plano."
+                    setShowBadge(false)
+                }
+                manager.createNotificationChannel(channel)
             }
-            manager?.createNotificationChannel(channel)
         }
     }
 
@@ -150,25 +169,36 @@ class RecordingService : Service() {
         )
 
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("Recording in background")
-            .setContentText("Binot is still recording — ${formatTime(seconds)} elapsed. Tap to return.")
-            .setSmallIcon(R.mipmap.ic_launcher_monochrome)
+            .setContentTitle("Grabando en segundo plano")
+            .setContentText("Obinot sigue grabando · ${formatTime(seconds)} transcurrido")
+            .setSmallIcon(R.drawable.ic_recording_notification)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
     private fun updateNotification(seconds: Int) {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager?.notify(NOTIFICATION_ID, buildNotification(seconds))
+        try {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.notify(NOTIFICATION_ID, buildNotification(seconds))
+        } catch (e: Exception) {
+            Log.w(TAG, "updateNotification", e)
+        }
     }
 
     private fun formatTime(totalSeconds: Int): String {
-        val minutes = totalSeconds / 60
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
         val secs = totalSeconds % 60
-        return String.format("%02d:%02d", minutes, secs)
+        return if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, secs)
+        } else {
+            String.format("%02d:%02d", minutes, secs)
+        }
     }
 
     override fun onDestroy() {

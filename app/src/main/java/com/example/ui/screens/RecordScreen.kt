@@ -4,6 +4,7 @@ package com.example.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyHorizontalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -25,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -39,6 +42,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -53,6 +57,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.ui.components.AudioFilePickerSheet
 import com.example.viewmodel.RecordViewModel
 import com.example.ui.components.AudioWaveform
 import kotlinx.coroutines.launch
@@ -68,15 +73,14 @@ fun RecordScreen(
     snackbarHostState: SnackbarHostState,
     animatedVisibilityScope: AnimatedVisibilityScope,
     sharedTransitionScope: SharedTransitionScope,
-    onNoteClick: (Int) -> Unit
+    onNoteClick: (Int) -> Unit,
+    onImportFile: suspend (Uri) -> Int? = { null }
 ) {
     val context = LocalContext.current
-    val haptics = LocalHapticFeedback.current 
-    
-    // LOGIKA BARU: Cek langsung apakah warna background terang atau gelap! 
-    // Bebas dari bug theme system yang ngebajak.
+    val haptics = LocalHapticFeedback.current
+
     val isAppInLightMode = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-    
+
     val isRecording by viewModel.isRecording.collectAsState()
     val isPaused by viewModel.isPaused.collectAsState()
     val amplitude by viewModel.amplitude.collectAsState()
@@ -84,8 +88,6 @@ fun RecordScreen(
     val recordingSeconds by viewModel.recordingSeconds.collectAsState()
     val recentNotes by viewModel.recentNotes.collectAsState()
 
-    // Filtro de seguridad: la nota sintética del sistema (binot_systm_labels / [..])
-    // no debe aparecer como tarjeta en la fila superior.
     val visibleNotes = remember(recentNotes) {
         recentNotes.filterNot { note ->
             val t = note.title.trim()
@@ -105,7 +107,9 @@ fun RecordScreen(
     var showEasterEggDialog by remember { mutableStateOf(false) }
     var easterEggAnswer by remember { mutableStateOf("") }
     var showLovePopup by remember { mutableStateOf(false) }
-    
+    var showAudioPicker by remember { mutableStateOf(false) }
+    var isImporting by remember { mutableStateOf(false) }
+
     var hasPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -148,7 +152,7 @@ fun RecordScreen(
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
 
     val displayLiveText = if (recordMode == 1) {
-        "Live transcription is disabled."
+        "Live transcription is disabled in Accurate mode."
     } else {
         if (recognizedText.isEmpty()) "Waiting for voice input..." else recognizedText
     }
@@ -186,9 +190,9 @@ fun RecordScreen(
                         .weight(1f)
                 ) {
                     val availableHeight = maxHeight
-                    
+
                     val stiffSpring = spring<Dp>(dampingRatio = 0.9f, stiffness = 400f)
-                    
+
                     val boxHeight by animateDpAsState(
                         targetValue = if (isExpanded) availableHeight else 160.dp,
                         animationSpec = stiffSpring,
@@ -214,7 +218,7 @@ fun RecordScreen(
                         animationSpec = spring(stiffness = Spring.StiffnessMedium),
                         label = "contentColor"
                     )
-                    
+
                     val boxScale by animateFloatAsState(
                         targetValue = if (isPressExpanded) 0.97f else 1f,
                         animationSpec = spring(stiffness = Spring.StiffnessHigh),
@@ -237,20 +241,20 @@ fun RecordScreen(
                             modifier = Modifier
                                 .padding(horizontal = 24.dp)
                                 .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        greetingTapCount++
-                                        if (greetingTapCount > 4) {
-                                            greetingTapCount = 0
-                                            showEasterEggDialog = true
-                                            easterEggAnswer = ""
+                                    detectTapGestures(
+                                        onTap = {
+                                            greetingTapCount++
+                                            if (greetingTapCount > 4) {
+                                                greetingTapCount = 0
+                                                showEasterEggDialog = true
+                                                easterEggAnswer = ""
+                                            }
                                         }
-                                    }
-                                )
-                            }
+                                    )
+                                }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        
+
                         Surface(
                             shape = CircleShape,
                             color = when {
@@ -282,7 +286,7 @@ fun RecordScreen(
                                 .height(160.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            androidx.compose.animation.AnimatedVisibility(
+                            AnimatedVisibility(
                                 visible = isRecording || isPaused,
                                 enter = fadeIn(tween(400)) + scaleIn(initialScale = 0.8f, animationSpec = spring(dampingRatio = 0.8f)),
                                 exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.8f)
@@ -293,7 +297,7 @@ fun RecordScreen(
                                 )
                             }
 
-                            androidx.compose.animation.AnimatedVisibility(
+                            AnimatedVisibility(
                                 visible = !isRecording && !isPaused && visibleNotes.isNotEmpty(),
                                 enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { 50 }),
                                 exit = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { 50 })
@@ -303,15 +307,43 @@ fun RecordScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     horizontalItemSpacing = 12.dp,
                                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp) 
+                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp)
                                 ) {
                                     items(visibleNotes, key = { it.id }) { note ->
                                         val displayTitle = if (note.title.isBlank()) "No title" else note.title
                                         val randomPadding = remember(note.id) { (note.id * 23 % 40).dp }
 
+                                        val noteInteraction = remember { MutableInteractionSource() }
+                                        val noteScale = remember { Animatable(1f) }
+                                        LaunchedEffect(noteInteraction) {
+                                            noteInteraction.interactions.collect { interaction ->
+                                                when (interaction) {
+                                                    is PressInteraction.Press -> {
+                                                        noteScale.animateTo(
+                                                            0.95f,
+                                                            spring(
+                                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                                stiffness = Spring.StiffnessMedium
+                                                            )
+                                                        )
+                                                    }
+                                                    is PressInteraction.Release, is PressInteraction.Cancel -> {
+                                                        noteScale.animateTo(
+                                                            1f,
+                                                            spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         with(sharedTransitionScope) {
                                             Box(
                                                 modifier = Modifier
+                                                    .graphicsLayer {
+                                                        scaleX = noteScale.value
+                                                        scaleY = noteScale.value
+                                                    }
                                                     .sharedBounds(
                                                         sharedContentState = rememberSharedContentState("record_note-${note.id}"),
                                                         animatedVisibilityScope = animatedVisibilityScope,
@@ -319,14 +351,12 @@ fun RecordScreen(
                                                         boundsTransform = { _, _ -> tween(300) }
                                                     )
                                                     .clip(RoundedCornerShape(32.dp))
-                                                    .background(MaterialTheme.colorScheme.surface) 
-                                                    .pointerInput(note.id) {
-                                                        detectTapGestures(
-                                                            onTap = {
-                                                                onNoteClick(note.id)
-                                                            }
-                                                        )
-                                                    }
+                                                    .background(MaterialTheme.colorScheme.surface)
+                                                    .clickable(
+                                                        interactionSource = noteInteraction,
+                                                        indication = null,
+                                                        onClick = { onNoteClick(note.id) }
+                                                    )
                                                     .heightIn(min = 64.dp)
                                                     .padding(
                                                         horizontal = (32.dp + randomPadding),
@@ -337,8 +367,6 @@ fun RecordScreen(
                                                 Text(
                                                     text = displayTitle,
                                                     style = MaterialTheme.typography.titleMedium,
-                                                    // INI BARIS YANG BERUBAH DARI TADI:
-                                                    // Kalau terang, pake primary (warna tema, bukan item/bnw). Kalau gelap, secondaryContainer lu.
                                                     color = if (isAppInLightMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
                                                     fontWeight = FontWeight.Bold,
                                                     maxLines = 1,
@@ -350,8 +378,8 @@ fun RecordScreen(
                                 }
                             }
                         }
-                        
-                        Spacer(modifier = Modifier.weight(0.5f)) 
+
+                        Spacer(modifier = Modifier.weight(0.5f))
                     }
 
                     Box(
@@ -360,7 +388,7 @@ fun RecordScreen(
                             .fillMaxWidth()
                             .height(boxHeight)
                             .scale(boxScale)
-                            .padding(horizontal = 24.dp) 
+                            .padding(horizontal = 24.dp)
                             .clip(RoundedCornerShape(cornerRadius))
                             .background(containerColor)
                             .pointerInput(Unit) {
@@ -460,7 +488,7 @@ fun RecordScreen(
                                     textAlign = TextAlign.Start,
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .verticalScroll(scrollState, enabled = isExpanded) 
+                                        .verticalScroll(scrollState, enabled = isExpanded)
                                 )
                             }
                         }
@@ -471,6 +499,8 @@ fun RecordScreen(
 
                 val isSplit = isRecording || isPaused
                 val totalAreaWidth = 280.dp
+                val importButtonSize = 64.dp
+                val gapBetweenButtons = 12.dp
 
                 Box(
                     modifier = Modifier
@@ -481,18 +511,19 @@ fun RecordScreen(
                 ) {
                     var isLeftPressed by remember { mutableStateOf(false) }
                     var isStopPressed by remember { mutableStateOf(false) }
+                    var isImportPressed by remember { mutableStateOf(false) }
 
                     val leftTargetWidth = when {
-                        isStopPressed && isSplit -> 88.dp 
-                        isLeftPressed && isSplit -> 152.dp  
-                        isLeftPressed            -> totalAreaWidth + 56.dp 
+                        isStopPressed && isSplit -> 88.dp
+                        isLeftPressed && isSplit -> 152.dp
+                        isLeftPressed            -> totalAreaWidth + 56.dp
                         isSplit                  -> 120.dp
                         else                     -> totalAreaWidth
                     }
                     val rightTargetWidth = when {
                         !isSplit                  -> 0.dp
-                        isStopPressed              -> 152.dp 
-                        isLeftPressed               -> 88.dp  
+                        isStopPressed              -> 152.dp
+                        isLeftPressed               -> 88.dp
                         else                        -> 120.dp
                     }
                     val gapTarget = if (isSplit) 16.dp else 0.dp
@@ -502,9 +533,11 @@ fun RecordScreen(
                     val rightButtonAlpha by animateFloatAsState(targetValue = if (isSplit) 1f else 0f, animationSpec = spring(stiffness = Spring.StiffnessMedium), label = "rightAlpha")
                     val gapWidth by animateDpAsState(targetValue = gapTarget, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "gap")
                     val leftIconScale by animateFloatAsState(targetValue = if (isLeftPressed && !isSplit) 1.12f else 1f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "leftIconScale")
+                    val importAlpha by animateFloatAsState(targetValue = if (isSplit) 0f else 1f, animationSpec = spring(stiffness = Spring.StiffnessMedium), label = "importAlpha")
+                    val importScale by animateFloatAsState(targetValue = if (isImportPressed) 0.90f else 1f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "importScale")
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(gapWidth),
+                        horizontalArrangement = Arrangement.spacedBy(if (isSplit) gapWidth else gapBetweenButtons),
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.wrapContentWidth()
                     ) {
@@ -517,7 +550,7 @@ fun RecordScreen(
                                     when {
                                         isSplit && !isPaused -> MaterialTheme.colorScheme.secondaryContainer
                                         isSplit && isPaused  -> MaterialTheme.colorScheme.primaryContainer
-                                        else                 -> MaterialTheme.colorScheme.primary 
+                                        else                 -> MaterialTheme.colorScheme.primary
                                     }
                                 )
                                 .pointerInput(isSplit, isPaused) {
@@ -619,14 +652,92 @@ fun RecordScreen(
                                 }
                             }
                         }
+
+                        // NUEVO: botón Import al lado del Record (solo cuando no está grabando)
+                        if (!isSplit) {
+                            Box(
+                                modifier = Modifier
+                                    .size(importButtonSize)
+                                    .graphicsLayer {
+                                        scaleX = importScale
+                                        scaleY = importScale
+                                        alpha = importAlpha
+                                    }
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onPress = {
+                                                isImportPressed = true
+                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                tryAwaitRelease()
+                                                isImportPressed = false
+                                                showAudioPicker = true
+                                            }
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Audiotrack,
+                                    contentDescription = "Import audio",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
             }
+
+            // Import overlay
+            if (isImporting) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        LoadingIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "Importing audio...",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
         }
     }
 
+    // Audio picker
+    if (showAudioPicker) {
+        AudioFilePickerSheet(
+            onDismiss = { showAudioPicker = false },
+            onFileSelected = { uri ->
+                showAudioPicker = false
+                isImporting = true
+                coroutineScope.launch {
+                    val newId = onImportFile(uri)
+                    isImporting = false
+                    if (newId != null) {
+                        onNoteClick(newId)
+                    } else {
+                        snackbarHostState.showSnackbar("Failed to import audio file.")
+                    }
+                }
+            }
+        )
+    }
+
+    // Easter egg + Love popup (sin cambios)
     if (showEasterEggDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -751,7 +862,7 @@ private fun M3ExpressiveBackground() {
             center = Offset(w * 0.5f, h * 0.2f),
             radius = w * 0.8f
         )
-        
+
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(secondaryColor, Color.Transparent),
