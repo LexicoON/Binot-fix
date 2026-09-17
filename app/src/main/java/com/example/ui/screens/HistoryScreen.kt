@@ -309,25 +309,25 @@ fun HistoryScreen(
                         Icons.Default.History to "Oldest",
                         Icons.AutoMirrored.Filled.Sort to "A–Z"
                     )
-                    ButtonGroup(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                    // FIX 6: ButtonGroup en material3 1.5.0-alpha28 exige 'overflowIndicator'
+                    // y su content lambda NO es @Composable (por eso fallaba el remember).
+                    // Además toggleableItem no acepta modifier/interactionSource y exige 'label'.
+                    // Se usa el mismo patrón Row + ToggleButton que ya compila en Settings/Onboarding.
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                     ) {
                         sortOptions.forEachIndexed { index, (icon, description) ->
-                            val itemInteraction = remember { MutableInteractionSource() }
-                            toggleableItem(
+                            ToggleButton(
                                 checked = sortMode == index,
                                 onCheckedChange = {
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     viewModel.setSortMode(index)
                                 },
-                                interactionSource = itemInteraction,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .animateWidth(itemInteraction),
-                                icon = {
-                                    Icon(icon, contentDescription = description, modifier = Modifier.size(18.dp))
-                                }
-                            )
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(icon, contentDescription = description, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
 
