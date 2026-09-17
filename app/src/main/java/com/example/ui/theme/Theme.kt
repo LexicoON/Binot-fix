@@ -16,14 +16,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import com.materialkolor.DynamicMaterialExpressiveTheme
 import com.materialkolor.PaletteStyle
-import com.materialkolor.rememberDynamicColorScheme
-import com.materialkolor.rememberDynamicMaterialThemeState
 
 private val ExpressiveShapes = Shapes(
     small = RoundedCornerShape(16.dp),
-                                      medium = RoundedCornerShape(24.dp),
-                                      large = RoundedCornerShape(32.dp),
-                                      extraLarge = RoundedCornerShape(48.dp)
+    medium = RoundedCornerShape(24.dp),
+    large = RoundedCornerShape(32.dp),
+    extraLarge = RoundedCornerShape(48.dp)
 )
 
 /**
@@ -51,11 +49,12 @@ fun BinotTheme(
     content: @Composable () -> Unit
 ) {
     val isSystemDark = isSystemInDarkTheme()
-    val isDark = when(themeMode) {
+    val isDark = when (themeMode) {
         1 -> false
         2, 3 -> true
         else -> isSystemDark
     }
+    val isAmoled = themeMode == 3
 
     // Mapeo de nuestro enum al PaletteStyle de MaterialKolor.
     val paletteStyle = when (colorStyle) {
@@ -68,35 +67,46 @@ fun BinotTheme(
 
     val context = LocalContext.current
 
-    // Si dynamicColor está activo y el sistema lo soporta, usamos los colores del wallpaper.
-    // Si no, usamos MaterialKolor con un seed por defecto (PrimaryPurple).
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        else -> {
-            rememberDynamicColorScheme(
-                seedColor = PrimaryPurple,
-                isDark = isDark,
-                style = paletteStyle
-            )
-        }
-    }
+    // OPCIÓN X — ramificación:
+    // - Si dynamicColor && SDK >= S → colores del wallpaper vía MaterialExpressiveTheme estándar.
+    //   (DynamicMaterialExpressiveTheme de MaterialKolor 5.x ya no acepta colorScheme,
+    //    solo seedColor, así que para wallpaper hay que usar el theme de material3).
+    // - Si no → colores generados desde seed vía DynamicMaterialExpressiveTheme.
+    val useWallpaper = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    val finalColorScheme = if (themeMode == 3) {
-        colorScheme.copy(
-            background = Color.Black,
-            surface = Color.Black
+    if (useWallpaper) {
+        val wallpaperColorScheme = if (isDark) {
+            dynamicDarkColorScheme(context)
+        } else {
+            dynamicLightColorScheme(context)
+        }
+
+        val finalColorScheme = if (isAmoled) {
+            wallpaperColorScheme.copy(
+                background = Color.Black,
+                surface = Color.Black
+            )
+        } else {
+            wallpaperColorScheme
+        }
+
+        MaterialExpressiveTheme(
+            colorScheme = finalColorScheme,
+            motionScheme = MotionScheme.expressive(),
+            shapes = ExpressiveShapes,
+            typography = Typography,
+            content = content
         )
     } else {
-        colorScheme
+        DynamicMaterialExpressiveTheme(
+            seedColor = PrimaryPurple,
+            motionScheme = MotionScheme.expressive(),
+            isDark = isDark,
+            isAmoled = isAmoled,
+            style = paletteStyle,
+            shapes = ExpressiveShapes,
+            typography = Typography,
+            content = content
+        )
     }
-
-    DynamicMaterialExpressiveTheme(
-        colorScheme = finalColorScheme,
-        motionScheme = MotionScheme.expressive(),
-                                   shapes = ExpressiveShapes,
-                                   typography = Typography,
-                                   content = content
-    )
 }

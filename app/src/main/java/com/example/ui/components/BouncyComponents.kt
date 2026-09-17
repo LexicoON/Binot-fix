@@ -35,11 +35,16 @@ import androidx.compose.ui.unit.dp
  *
  * El dip mínimo de 0.94f + rebound de 0.40f da la sensación de "siempre hay animación",
  * incluso con taps ultra rápidos.
+ *
+ * NOTA: `Modifier.composed` está en desuso. La forma moderna es declarar
+ * el modifier como @Composable y devolver un Modifier compuesto, que es lo
+ * que se hace aquí.
  */
+@Composable
 fun Modifier.bouncyClickable(
     enabled: Boolean = true,
     onClick: () -> Unit
-): Modifier = composed {
+): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val scale = remember { Animatable(1f) }
 
@@ -65,7 +70,7 @@ fun Modifier.bouncyClickable(
         }
     }
 
-    this
+    return this
         .graphicsLayer {
             scaleX = scale.value
             scaleY = scale.value

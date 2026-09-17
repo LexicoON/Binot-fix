@@ -303,8 +303,6 @@ fun HistoryScreen(
                     Spacer(Modifier.height(24.dp))
                     Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
 
-                    // Sort toggle con ButtonGroup + toggleableItem: el botón presionado se expande,
-                    // los vecinos se comprimen (push effect de M3 Expressive).
                     val sortOptions = listOf(
                         Icons.Default.AccessTime to "Newest",
                         Icons.Default.History to "Oldest",
@@ -474,13 +472,23 @@ fun HistoryScreen(
                                 BouncyIconButton(onClick = { showSelectionMenu = true }) {
                                     Icon(Icons.Default.MoreVert, contentDescription = "Options")
                                 }
+
+                                // CAMBIO: DropdownMenu con modifier explícito para forzar la
+                                // resolución a la sobrecarga estándar de material3, evitando
+                                // que el compilador elija la variante expresiva que exige
+                                // 'overflowIndicator'.
                                 DropdownMenu(
                                     expanded = showSelectionMenu,
-                                    onDismissRequest = { showSelectionMenu = false }
+                                    onDismissRequest = { showSelectionMenu = false },
+                                    modifier = Modifier
                                 ) {
+                                    // CAMBIO: trailingIcon explícito fuerza la sobrecarga
+                                    // estándar de DropdownMenuItem que acepta modifier y
+                                    // interactionSource (la expresiva exige 'label' trailing).
                                     DropdownMenuItem(
                                         text = { Text("Select All") },
                                         leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
+                                        trailingIcon = null,
                                         onClick = {
                                             selectedNotes = notes.map { it.id }.toSet()
                                             showSelectionMenu = false
@@ -489,6 +497,7 @@ fun HistoryScreen(
                                     DropdownMenuItem(
                                         text = { Text(if (isAllPinned) "Unpin" else "Pin") },
                                         leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
+                                        trailingIcon = null,
                                         onClick = {
                                             viewModel.togglePinMultiple(selectedNotes, !isAllPinned)
                                             selectionMode = false
@@ -499,6 +508,7 @@ fun HistoryScreen(
                                     DropdownMenuItem(
                                         text = { Text("Clone") },
                                         leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                                        trailingIcon = null,
                                         onClick = {
                                             viewModel.cloneMultiple(selectedNotes)
                                             selectionMode = false
@@ -511,6 +521,7 @@ fun HistoryScreen(
                                         DropdownMenuItem(
                                             text = { Text("Share") },
                                             leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                            trailingIcon = null,
                                             onClick = {
                                                 val noteId = selectedNotes.first()
                                                 val noteToShare = notes.find { it.id == noteId }
@@ -543,6 +554,7 @@ fun HistoryScreen(
                                     DropdownMenuItem(
                                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                        trailingIcon = null,
                                         onClick = {
                                             showDeleteDialog = true
                                             showSelectionMenu = false
@@ -892,12 +904,10 @@ fun HistoryScreen(
                     onClick = {
                         val oldLabel = labelBeingManaged
                         if (oldLabel != null) {
-                            // Aplicar rename si cambió
                             if (renameLabelInput.isNotBlank() && renameLabelInput.trim() != oldLabel) {
                                 viewModel.renameLabel(oldLabel, renameLabelInput.trim())
                                 viewModel.setLabelColor(renameLabelInput.trim(), renameLabelColor)
                             } else {
-                                // Solo color
                                 viewModel.setLabelColor(oldLabel, renameLabelColor)
                             }
                         }

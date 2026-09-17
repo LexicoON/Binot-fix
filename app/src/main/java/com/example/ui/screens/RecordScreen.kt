@@ -286,7 +286,10 @@ fun RecordScreen(
                                 .height(160.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            AnimatedVisibility(
+                            // CAMBIO: AnimatedVisibility cualificado explícitamente para evitar
+                            // que el overload ColumnScope.AnimatedVisibility (heredado del Column
+                            // padre) gane la resolución de overloads dentro de un Box.
+                            androidx.compose.animation.AnimatedVisibility(
                                 visible = isRecording || isPaused,
                                 enter = fadeIn(tween(400)) + scaleIn(initialScale = 0.8f, animationSpec = spring(dampingRatio = 0.8f)),
                                 exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.8f)
@@ -297,7 +300,7 @@ fun RecordScreen(
                                 )
                             }
 
-                            AnimatedVisibility(
+                            androidx.compose.animation.AnimatedVisibility(
                                 visible = !isRecording && !isPaused && visibleNotes.isNotEmpty(),
                                 enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { 50 }),
                                 exit = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { 50 })
