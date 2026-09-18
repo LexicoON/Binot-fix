@@ -5,14 +5,20 @@ import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Compresor nativo de audio AAC usando MediaCodec.
+ * Compresor nativo de audio AAC usando MediaCodec en modo asíncrono.
  *
  * Pipeline: MediaExtractor → MediaCodec decoder (AAC→PCM) → MediaCodec encoder (PCM→AAC) → MediaMuxer (MP4)
  *
@@ -21,6 +27,21 @@ import java.nio.ByteBuffer
  *
  * Punto dulce de calidad para voz: 64-96 kbps mono.
  * Por debajo de 48 kbps, la voz empieza a sonar metálica y pierde inteligibilidad.
+ *
+ * ---
+ * ¿Por qué modo asíncrono?
+ *
+ * El modo síncrono (dequeueInput/OutputBuffer con timeouts en un bucle) tiene un
+ * overhead significativo: el hilo hace polling continuo y desperdicia ciclos de CPU
+ * esperando a que el codec tenga buffers disponibles. En dispositivos de gama baja,
+ * esto se traduce en compresiones que tardan 3-5x más de lo necesario.
+ *
+ * El modo asíncrono (setCallback) usa dos hilos internos del codec: uno para input
+ * y otro para output. El sistema te avisa cuando hay un buffer listo, en vez de que
+ * tú preguntes en un bucle. Esto reduce el overhead y permite que el codec use
+ * recursos de hardware de forma más eficiente.
+ *
+ * La documentación oficial lo marca como el método preferido desde API 21.
  */
 object AudioCompressor {
 
@@ -37,6 +58,23 @@ object AudioCompressor {
 
     /** Tamaño objetivo por defecto (un poco por debajo de 25 MB para dar margen al protocolo HTTP). */
     const val DEFAULT_TARGET_SIZE_MB = 24.5
+
+    /**
+     * Máximo de buffers PCM encolados entre decoder y encoder.
+     * Cada buffer es típicamente 4-8 KB de PCM. Con 16 buffers el pico de memoria
+     * es ~128 KB, insignificante incluso en dispositivos con poca RAM.
+     * Si el encoder se atrasa, la cola aplica backpressure natural al decoder.
+     */
+    private const val PCM_QUEUE_CAPACITY = 16
+
+    /** Timeout de espera al final de la cadena para drenar buffers pendientes. */
+    private const val DRAIN_TIMEOUT_MS = 500L
+
+    /** Si el extractor no avanza en este tiempo, se asume que el pipeline se trabó. */
+    private const val STALL_TIMEOUT_MS = 8_000L
+
+    /** Tope absoluto de seguridad: 10 minutos. */
+    private const val HARD_TIMEOUT_MS = 10 * 60 * 1000L
 
     sealed class Result {
         data class Success(
@@ -78,8 +116,8 @@ object AudioCompressor {
      * Escribe el resultado en [outputFile].
      *
      * [onProgress] reporta 0-100 en base a cuánto del audio ya se leyó del extractor.
-     * Es la única forma real de distinguir "está comprimiendo pero es lento" de
-     * "está trabado": si el número deja de subir por varios segundos, algo anda mal.
+     * El callback se invoca desde el hilo de control (no desde el hilo del codec),
+     * así que es seguro llamar funciones de UI a través de un `launch(Dispatchers.Main)`.
      */
     suspend fun compress(
         inputFile: File,
@@ -95,13 +133,58 @@ object AudioCompressor {
         var decoder: MediaCodec? = null
         var encoder: MediaCodec? = null
         var muxer: MediaMuxer? = null
+        var decoderThread: HandlerThread? = null
+        var encoderThread: HandlerThread? = null
+
+        // Flags compartidos entre hilos.
+        val inputDone = AtomicBoolean(false)
+        val decoderDone = AtomicBoolean(false)
+        val encoderDone = AtomicBoolean(false)
+        val muxerStarted = AtomicBoolean(false)
+        val muxerStopped = AtomicBoolean(false)
+        val compressorFailed = AtomicBoolean(false)
+        var failureReason: String? = null
+        val outputTrackIndex = AtomicLong(-1L)
+
+        // Cola PCM entre decoder y encoder. El decoder deposita, el encoder consume.
+        // La capacidad limitada aplica backpressure natural: si el encoder se atrasa,
+        // el decoder se bloquea al intentar encolar, y a su vez el input thread se
+        // bloquea al intentar alimentar al decoder. El pipeline se auto-regula.
+        val pcmQueue = LinkedBlockingQueue<PcmChunk>(PCM_QUEUE_CAPACITY)
+
+        // Marca de tiempo del último sample leído por el extractor.
+        // Se usa para detectar stalls: si no avanza en STALL_TIMEOUT_MS, abortamos.
+        val lastProgressUs = AtomicLong(0L)
+        val lastProgressAt = AtomicLong(System.currentTimeMillis())
+
+        // Estado interno del pipeline. Se accede solo desde el hilo de control.
+        var totalDurationUs = -1L
+        var lastReportedPercent = -1
+
+        fun reportProgress() {
+            if (totalDurationUs <= 0) return
+            val currentUs = lastProgressUs.get()
+            val percent = ((currentUs.coerceAtMost(totalDurationUs) * 100) / totalDurationUs)
+                .toInt()
+                .coerceIn(0, 99)
+            if (percent != lastReportedPercent) {
+                lastReportedPercent = percent
+                onProgress(percent)
+            }
+        }
+
+        fun abort(reason: String): Result.Failure {
+            failureReason = reason
+            compressorFailed.set(true)
+            return Result.Failure(reason)
+        }
 
         try {
             extractor = MediaExtractor().apply {
                 setDataSource(inputFile.absolutePath)
             }
 
-            // Buscar la pista de audio
+            // Buscar la pista de audio.
             var audioTrackIndex = -1
             var inputFormat: MediaFormat? = null
             for (i in 0 until extractor.trackCount) {
@@ -120,10 +203,7 @@ object AudioCompressor {
 
             extractor.selectTrack(audioTrackIndex)
 
-            // Duración total en microsegundos, para calcular el % de avance.
-            // Si el contenedor no la trae (raro pero pasa), caemos a -1 y el progreso
-            // reportado se queda en un valor fijo en vez de dividir por cero.
-            val totalDurationUs = if (inputFormat.containsKey(MediaFormat.KEY_DURATION)) {
+            totalDurationUs = if (inputFormat.containsKey(MediaFormat.KEY_DURATION)) {
                 inputFormat.getLong(MediaFormat.KEY_DURATION)
             } else -1L
 
@@ -131,198 +211,330 @@ object AudioCompressor {
             val channelCount = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val inputMime = inputFormat.getString(MediaFormat.KEY_MIME)!!
 
-            // Decoder: AAC → PCM
+            // --- HandlerThreads dedicados para los callbacks del codec ---
+            // Cada codec corre en su propio hilo. MediaCodec garantiza que los
+            // callbacks de un mismo codec se serializan en el Handler asociado.
+            decoderThread = HandlerThread("AudioDecoder").apply { start() }
+            encoderThread = HandlerThread("AudioEncoder").apply { start() }
+            val decoderHandler = Handler(decoderThread.looper)
+            val encoderHandler = Handler(encoderThread.looper)
+
+            // --- Decoder: AAC → PCM ---
+            // Los callbacks se configuran ANTES de configure() en async mode.
+            val decoderInputIndex = AtomicLong(-1L)
+
             decoder = MediaCodec.createDecoderByType(inputMime).apply {
+                setCallback(object : MediaCodec.Callback() {
+                    override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
+                        if (compressorFailed.get() || inputDone.get()) {
+                            // Si ya no hay más input, señalamos EOS al decoder.
+                            try {
+                                codec.queueInputBuffer(
+                                    index, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                )
+                            } catch (e: Exception) {
+                                Log.w(TAG, "decoder queue EOS", e)
+                            }
+                            return
+                        }
+
+                        try {
+                            val buffer = codec.getInputBuffer(index) ?: return
+                            buffer.clear()
+                            val sampleSize = extractor.readSampleData(buffer, 0)
+
+                            if (sampleSize < 0) {
+                                codec.queueInputBuffer(
+                                    index, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                )
+                                inputDone.set(true)
+                            } else {
+                                val pts = extractor.sampleTime
+                                codec.queueInputBuffer(index, 0, sampleSize, pts, 0)
+                                extractor.advance()
+
+                                // Actualizar progreso desde el hilo del decoder.
+                                lastProgressUs.set(pts)
+                                lastProgressAt.set(System.currentTimeMillis())
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "decoder input error", e)
+                            compressorFailed.set(true)
+                            failureReason = "Decoder input failed: ${e.message}"
+                        }
+                    }
+
+                    override fun onOutputBufferAvailable(
+                        codec: MediaCodec,
+                        index: Int,
+                        info: MediaCodec.BufferInfo
+                    ) {
+                        if (compressorFailed.get()) {
+                            try { codec.releaseOutputBuffer(index, false) } catch (_: Exception) {}
+                            return
+                        }
+
+                        try {
+                            val isEos = (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+
+                            if (info.size > 0) {
+                                val pcmBuffer = codec.getOutputBuffer(index)
+                                if (pcmBuffer != null) {
+                                    // Copiar PCM a un array propio. El buffer del codec
+                                    // se recicla inmediatamente, así que no podemos
+                                    // retener una referencia.
+                                    val pcm = ByteArray(info.size)
+                                    pcmBuffer.position(info.offset)
+                                    pcmBuffer.limit(info.offset + info.size)
+                                    pcmBuffer.get(pcm)
+
+                                    // Encolar con backpressure. offer con timeout
+                                    // evita deadlock si el encoder falló y ya nadie consume.
+                                    val queued = pcmQueue.offer(
+                                        PcmChunk(pcm, info.presentationTimeUs, isEos),
+                                        DRAIN_TIMEOUT_MS,
+                                        TimeUnit.MILLISECONDS
+                                    )
+                                    if (!queued) {
+                                        // El encoder no está consumiendo. Abortar.
+                                        compressorFailed.set(true)
+                                        failureReason = "Encoder stalled (PCM queue full)"
+                                    }
+                                }
+                            } else if (isEos) {
+                                // EOS sin datos: propagar marca a la cola.
+                                pcmQueue.offer(PcmChunk(null, info.presentationTimeUs, true))
+                            }
+
+                            codec.releaseOutputBuffer(index, false)
+
+                            if (isEos) {
+                                decoderDone.set(true)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "decoder output error", e)
+                            compressorFailed.set(true)
+                            failureReason = "Decoder output failed: ${e.message}"
+                        }
+                    }
+
+                    override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                        // El decoder cambia a formato PCM. No necesitamos hacer nada.
+                    }
+
+                    override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                        Log.e(TAG, "decoder error", e)
+                        compressorFailed.set(true)
+                        failureReason = "Decoder error: ${e.message}"
+                    }
+                }, decoderHandler)
+
                 configure(inputFormat, null, null, 0)
                 start()
             }
 
-            // Encoder: PCM → AAC al bitrate objetivo
-            val outputFormat = MediaFormat.createAudioFormat(
-                MediaFormat.MIMETYPE_AUDIO_AAC,
-                sampleRate,
-                channelCount
-            ).apply {
-                setInteger(
-                    MediaFormat.KEY_AAC_PROFILE,
-                    MediaCodecInfo.CodecProfileLevel.AACObjectLC
-                )
-                setInteger(MediaFormat.KEY_BIT_RATE, targetBitrate)
-                // FIX: 16384 (16 KB) es chico para un solo buffer PCM de un decoder
-                // con canales/sample-rate altos; con audio estéreo a 44.1kHz un único
-                // buffer del decoder puede superar eso y tirar BufferOverflowException
-                // (que el catch de más abajo silenciaba como "Unknown error"). 64 KB
-                // cubre holgadamente cualquier chunk típico de un decoder de audio.
-                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 65536)
-            }
-
+            // --- Encoder: PCM → AAC ---
             encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
+                setCallback(object : MediaCodec.Callback() {
+                    override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
+                        if (compressorFailed.get()) {
+                            try {
+                                codec.queueInputBuffer(
+                                    index, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                )
+                            } catch (_: Exception) {}
+                            return
+                        }
+
+                        try {
+                            // Tomar el siguiente chunk PCM. Poll con timeout para
+                            // no bloquear el hilo del encoder indefinidamente.
+                            val chunk = pcmQueue.poll(DRAIN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+
+                            if (chunk == null) {
+                                // No hay PCM listo. Devolver el buffer al encoder
+                                // sin datos; el sistema nos volverá a avisar.
+                                // Esto evita el deadlock cuando el decoder aún
+                                // no ha producido el primer buffer.
+                                codec.queueInputBuffer(index, 0, 0, 0, 0)
+                                return
+                            }
+
+                            val buffer = codec.getInputBuffer(index) ?: return
+                            buffer.clear()
+
+                            if (chunk.data != null) {
+                                buffer.put(chunk.data)
+                                codec.queueInputBuffer(
+                                    index, 0, chunk.data.size,
+                                    chunk.presentationTimeUs, 0
+                                )
+                            } else {
+                                // Chunk EOS sin datos: solo propagar la marca.
+                                codec.queueInputBuffer(
+                                    index, 0, 0,
+                                    chunk.presentationTimeUs,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "encoder input error", e)
+                            compressorFailed.set(true)
+                            failureReason = "Encoder input failed: ${e.message}"
+                        }
+                    }
+
+                    override fun onOutputBufferAvailable(
+                        codec: MediaCodec,
+                        index: Int,
+                        info: MediaCodec.BufferInfo
+                    ) {
+                        if (compressorFailed.get()) {
+                            try { codec.releaseOutputBuffer(index, false) } catch (_: Exception) {}
+                            return
+                        }
+
+                        try {
+                            val isEos = (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+
+                            // Ignorar el buffer de configuración del codec (contiene
+                            // el header AAC, no datos de audio).
+                            if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                                codec.releaseOutputBuffer(index, false)
+                                if (isEos) encoderDone.set(true)
+                                return
+                            }
+
+                            if (info.size > 0 && muxerStarted.get()) {
+                                val encodedData = codec.getOutputBuffer(index)
+                                if (encodedData != null) {
+                                    encodedData.position(info.offset)
+                                    encodedData.limit(info.offset + info.size)
+                                    muxer?.writeSampleData(
+                                        outputTrackIndex.get().toInt(),
+                                        encodedData,
+                                        info
+                                    )
+                                }
+                            }
+
+                            codec.releaseOutputBuffer(index, false)
+
+                            if (isEos) {
+                                encoderDone.set(true)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "encoder output error", e)
+                            compressorFailed.set(true)
+                            failureReason = "Encoder output failed: ${e.message}"
+                        }
+                    }
+
+                    override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                        // El encoder cambió su formato de salida (header AAC listo).
+                        // Aquí es donde arrancamos el muxer.
+                        if (!muxerStarted.get()) {
+                            try {
+                                val idx = muxer!!.addTrack(format)
+                                outputTrackIndex.set(idx.toLong())
+                                muxer!!.start()
+                                muxerStarted.set(true)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "muxer start error", e)
+                                compressorFailed.set(true)
+                                failureReason = "Muxer start failed: ${e.message}"
+                            }
+                        }
+                    }
+
+                    override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                        Log.e(TAG, "encoder error", e)
+                        compressorFailed.set(true)
+                        failureReason = "Encoder error: ${e.message}"
+                    }
+                }, encoderHandler)
+
+                val outputFormat = MediaFormat.createAudioFormat(
+                    MediaFormat.MIMETYPE_AUDIO_AAC,
+                    sampleRate,
+                    channelCount
+                ).apply {
+                    setInteger(
+                        MediaFormat.KEY_AAC_PROFILE,
+                        MediaCodecInfo.CodecProfileLevel.AACObjectLC
+                    )
+                    setInteger(MediaFormat.KEY_BIT_RATE, targetBitrate)
+                    // 64 KB cubre holgadamente cualquier chunk PCM típico de un
+                    // decoder de audio, incluso estéreo a 48 kHz.
+                    setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 65536)
+
+                    // KEY_OPERATING_RATE es un hint para que el codec priorice
+                    // velocidad sobre latencia. Para audio el valor es en Hz
+                    // (muestras por segundo). Usamos el sample rate (1x) que es
+                    // el valor seguro. Ratios más altos (10x) pueden crashear
+                    // el codec en algunos dispositivos.
+                    // Requiere API 23+ (Android 6.0).
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        setFloat(MediaFormat.KEY_OPERATING_RATE, sampleRate.toFloat())
+                    }
+                }
+
                 configure(outputFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                 start()
             }
 
+            // --- Muxer (sin start todavía) ---
             muxer = MediaMuxer(
                 outputFile.absolutePath,
                 MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
             )
 
-            // FIX: antes decoder y encoder compartían un mismo BufferInfo y, sobre todo,
-            // el bucle que alimentaba PCM al encoder giraba en vacío sin drenar la salida
-            // del encoder. En audios largos eso se traba para siempre (de ahí que la
-            // compresión "tardara" y nunca devolviera nada). Ahora hay un BufferInfo por
-            // etapa y el drenaje del encoder se ejecuta también mientras se espera un
-            // buffer de entrada libre.
-            val decoderInfo = MediaCodec.BufferInfo()
-            val encoderInfo = MediaCodec.BufferInfo()
-            var muxerStarted = false
-            var outputTrackIndex = -1
-            var inputDone = false
-            var decoderDone = false
-            var encoderDone = false
-
-            /** Drena UNA salida del encoder hacia el muxer. Devuelve true si consumió algo. */
-            fun drainEncoderOnce(timeoutUs: Long): Boolean {
-                val encIndex = encoder.dequeueOutputBuffer(encoderInfo, timeoutUs)
-                when {
-                    encIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        if (!muxerStarted) {
-                            outputTrackIndex = muxer.addTrack(encoder.outputFormat)
-                            muxer.start()
-                            muxerStarted = true
-                        }
-                        return true
-                    }
-                    encIndex >= 0 -> {
-                        val encodedData = encoder.getOutputBuffer(encIndex)
-                        if ((encoderInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-                            encoderInfo.size = 0
-                        }
-                        if (encodedData != null && encoderInfo.size > 0 && muxerStarted) {
-                            encodedData.position(encoderInfo.offset)
-                            encodedData.limit(encoderInfo.offset + encoderInfo.size)
-                            muxer.writeSampleData(outputTrackIndex, encodedData, encoderInfo)
-                        }
-                        encoder.releaseOutputBuffer(encIndex, false)
-                        if ((encoderInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                            encoderDone = true
-                        }
-                        return true
-                    }
-                }
-                return false
-            }
-
-            val deadline = System.currentTimeMillis() + 10 * 60 * 1000L // tope de seguridad absoluto
-
-            // FIX: antes, si el pipeline se trababa por CUALQUIER motivo (un decoder que
-            // nunca devuelve output en cierto dispositivo, un encoder que se cuelga, etc.),
-            // el usuario se quedaba mirando "Compressing audio..." hasta 10 MINUTOS sin
-            // ninguna señal de que algo estaba mal. Ahora medimos cuánto avanza el
-            // extractor real (sampleTime) y si no avanza en 8s seguidos, se aborta con un
-            // error claro en vez de colgarse en silencio. Esto es justo lo que hace falta
-            // para distinguir "lento" (el % sigue subiendo) de "trabado" (el % no se mueve).
-            var lastProgressUs = 0L
-            var lastProgressAt = System.currentTimeMillis()
-            var lastReportedPercent = -1
-            val stallTimeoutMs = 8_000L
-
-            fun reportProgress() {
-                if (totalDurationUs <= 0) return
-                val currentUs = extractor.sampleTime.let { if (it < 0) totalDurationUs else it }
-                if (currentUs != lastProgressUs) {
-                    lastProgressUs = currentUs
-                    lastProgressAt = System.currentTimeMillis()
-                }
-                val percent = ((currentUs.coerceAtMost(totalDurationUs) * 100) / totalDurationUs).toInt().coerceIn(0, 99)
-                if (percent != lastReportedPercent) {
-                    lastReportedPercent = percent
-                    onProgress(percent)
-                }
-            }
-
-            while (!encoderDone) {
+            // --- Hilo de control: monitorea progreso, stalls y finalización ---
+            // En async mode el trabajo pesado lo hacen los HandlerThreads.
+            // Este bucle solo observa el estado compartido y decide cuándo terminar.
+            val startTime = System.currentTimeMillis()
+            while (!encoderDone.get()) {
                 val now = System.currentTimeMillis()
-                if (now > deadline) {
+
+                if (compressorFailed.get()) {
+                    return@withContext Result.Failure(failureReason ?: "Unknown error")
+                }
+
+                if (now - startTime > HARD_TIMEOUT_MS) {
                     return@withContext Result.Failure("Compression timed out")
                 }
-                if (!inputDone && now - lastProgressAt > stallTimeoutMs) {
-                    return@withContext Result.Failure("Compression stalled (no progress for ${stallTimeoutMs / 1000}s)")
+
+                // Stall detection: si el extractor no avanza en STALL_TIMEOUT_MS,
+                // asumimos que algo se trabó y abortamos con un error claro.
+                if (!inputDone.get() && now - lastProgressAt.get() > STALL_TIMEOUT_MS) {
+                    return@withContext Result.Failure(
+                        "Compression stalled (no progress for ${STALL_TIMEOUT_MS / 1000}s)"
+                    )
                 }
+
                 reportProgress()
 
-                // 1. Extractor -> decoder
-                if (!inputDone) {
-                    val inIndex = decoder.dequeueInputBuffer(10_000)
-                    if (inIndex >= 0) {
-                        val buffer = decoder.getInputBuffer(inIndex)!!
-                        val sampleSize = extractor.readSampleData(buffer, 0)
-                        if (sampleSize < 0) {
-                            decoder.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            inputDone = true
-                        } else {
-                            decoder.queueInputBuffer(inIndex, 0, sampleSize, extractor.sampleTime, 0)
-                            extractor.advance()
-                        }
-                    }
+                // Si el decoder terminó pero el encoder sigue esperando chunks,
+                // no hacemos nada: el encoder irá consumiendo la cola.
+                // Solo esperamos un poco entre iteraciones.
+                Thread.sleep(50)
+            }
+
+            // Drenar cualquier PCM que haya quedado en la cola antes de cerrar.
+            // Normalmente la cola ya está vacía porque el encoder procesó todo,
+            // pero por seguridad vaciamos.
+            pcmQueue.clear()
+
+            // Cerrar el muxer limpiamente.
+            if (muxerStarted.get() && !muxerStopped.getAndSet(true)) {
+                try {
+                    muxer.stop()
+                } catch (e: Exception) {
+                    Log.w(TAG, "muxer stop", e)
                 }
-
-                // 2. Decoder -> encoder
-                if (!decoderDone) {
-                    val decIndex = decoder.dequeueOutputBuffer(decoderInfo, 10_000)
-                    if (decIndex >= 0) {
-                        val pcmBuffer = decoder.getOutputBuffer(decIndex)
-                        val isEos = (decoderInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
-
-                        if (pcmBuffer != null && decoderInfo.size > 0) {
-                            var pcmFed = false
-                            while (!pcmFed) {
-                                if (System.currentTimeMillis() > deadline) {
-                                    return@withContext Result.Failure("Compression timed out")
-                                }
-                                val encInIndex = encoder.dequeueInputBuffer(10_000)
-                                if (encInIndex >= 0) {
-                                    val encBuffer = encoder.getInputBuffer(encInIndex)!!
-                                    encBuffer.clear()
-                                    pcmBuffer.position(decoderInfo.offset)
-                                    pcmBuffer.limit(decoderInfo.offset + decoderInfo.size)
-                                    encBuffer.put(pcmBuffer)
-                                    encoder.queueInputBuffer(
-                                        encInIndex, 0, decoderInfo.size,
-                                        decoderInfo.presentationTimeUs,
-                                        if (isEos) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
-                                    )
-                                    pcmFed = true
-                                } else {
-                                    // Clave: si no hay input libre es porque la salida
-                                    // está llena. Drenarla desatasca el pipeline.
-                                    drainEncoderOnce(0)
-                                }
-                            }
-                        } else if (isEos) {
-                            // EOS sin datos: señalizar fin al encoder igualmente.
-                            var signalled = false
-                            while (!signalled) {
-                                val encInIndex = encoder.dequeueInputBuffer(10_000)
-                                if (encInIndex >= 0) {
-                                    encoder.queueInputBuffer(
-                                        encInIndex, 0, 0,
-                                        decoderInfo.presentationTimeUs,
-                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                                    )
-                                    signalled = true
-                                } else {
-                                    drainEncoderOnce(0)
-                                }
-                            }
-                        }
-
-                        decoder.releaseOutputBuffer(decIndex, false)
-                        if (isEos) decoderDone = true
-                    }
-                }
-
-                // 3. Encoder -> muxer
-                drainEncoderOnce(10_000)
             }
 
             onProgress(100)
@@ -336,22 +548,26 @@ object AudioCompressor {
             if (outputFile.exists()) outputFile.delete()
             Result.Failure(e.message ?: "Unknown error during compression")
         } finally {
-            try { extractor?.release() } catch (e: Exception) { Log.w(TAG, "extractor release", e) }
+            // Orden de liberación importa: primero los codecs (para que los
+            // callbacks dejen de dispararse), luego el muxer, luego los hilos.
             try { decoder?.stop() } catch (e: Exception) { Log.w(TAG, "decoder stop", e) }
             try { decoder?.release() } catch (e: Exception) { Log.w(TAG, "decoder release", e) }
             try { encoder?.stop() } catch (e: Exception) { Log.w(TAG, "encoder stop", e) }
             try { encoder?.release() } catch (e: Exception) { Log.w(TAG, "encoder release", e) }
-            try { if (muxerStartedSafe(muxer)) muxer?.stop() } catch (e: Exception) { Log.w(TAG, "muxer stop", e) }
             try { muxer?.release() } catch (e: Exception) { Log.w(TAG, "muxer release", e) }
+            try { extractor?.release() } catch (e: Exception) { Log.w(TAG, "extractor release", e) }
+            try { decoderThread?.quitSafely() } catch (e: Exception) { Log.w(TAG, "decoderThread quit", e) }
+            try { encoderThread?.quitSafely() } catch (e: Exception) { Log.w(TAG, "encoderThread quit", e) }
         }
     }
 
-    private fun muxerStartedSafe(muxer: MediaMuxer?): Boolean {
-        // MediaMuxer.stop() tira si nunca se llamó start(). Chequeo indirecto.
-        return try {
-            muxer?.let { true } ?: false
-        } catch (e: Exception) {
-            false
-        }
-    }
+    /**
+     * Chunk de PCM listo para alimentar al encoder.
+     * [data] null significa "marca EOS" (fin de stream sin datos adicionales).
+     */
+    private data class PcmChunk(
+        val data: ByteArray?,
+        val presentationTimeUs: Long,
+        val isEos: Boolean = false
+    )
 }

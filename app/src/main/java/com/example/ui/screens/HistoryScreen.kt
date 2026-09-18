@@ -228,8 +228,6 @@ fun HistoryScreen(
         }
     }
 
-    // El FAB de History respeta el mismo toggle "Native Audio Picker" que Record.
-    // El picker unificado también sabe listar notas .binot, no solo audios.
     var showNativePickerSheet by remember { mutableStateOf(false) }
 
     fun launchImportPicker() {
@@ -242,6 +240,12 @@ fun HistoryScreen(
 
     var isDragHovering by remember { mutableStateOf(false) }
 
+    // Handler de drag & drop.
+    // El drag del sistema puede llegar por dos vías:
+    // 1. clipData con uno o más items (lo más común).
+    // 2. androidEvent.data con un único Uri (fallback en algunos file managers).
+    // Si ninguna trae datos, se libera el permiso y se retorna false para que el
+    // sistema no muestre la animación de "drop exitoso" en el vacío.
     val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
         object : DragAndDropTarget {
             override fun onStarted(event: DragAndDropEvent) {
@@ -256,40 +260,50 @@ fun HistoryScreen(
                 val androidEvent = event.toAndroidDragEvent()
                 val permission = activity?.requestDragAndDropPermissions(androidEvent)
 
+                // Recolectar URIs de las dos vías posibles.
+                val uris = mutableListOf<Uri>()
                 val clipData = androidEvent.clipData
-                if (clipData != null && clipData.itemCount > 0) {
-                    var firstImportedId: Int? = null
-                    var successCount = 0
-                    var failCount = 0
-                    coroutineScope.launch {
-                        for (i in 0 until clipData.itemCount) {
-                            val uri = clipData.getItemAt(i).uri
-                            if (uri != null) {
-                                val newId = onImportFile(uri)
-                                if (newId != null) {
-                                    successCount++
-                                    if (firstImportedId == null) firstImportedId = newId
-                                } else {
-                                    failCount++
-                                }
-                            }
-                        }
-                        permission?.release()
-                        val msg = when {
-                            failCount == 0 && successCount > 1 -> "Imported $successCount files!"
-                            failCount == 0 -> "Imported successfully!"
-                            successCount == 0 -> "Failed to import any files. Ensure format is supported."
-                            else -> "Imported $successCount, failed $failCount."
-                        }
-                        snackbarHostState.showSnackbar(msg)
-                        if (firstImportedId != null && clipData.itemCount == 1) {
-                            onNoteClick(firstImportedId)
+                if (clipData != null) {
+                    for (i in 0 until clipData.itemCount) {
+                        clipData.getItemAt(i).uri?.let { uris.add(it) }
+                    }
+                }
+                // Fallback: algunos drag sources no llenan clipData pero sí data.
+                if (uris.isEmpty()) {
+                    androidEvent.data?.let { uris.add(it) }
+                }
+
+                if (uris.isEmpty()) {
+                    permission?.release()
+                    return false
+                }
+
+                var firstImportedId: Int? = null
+                var successCount = 0
+                var failCount = 0
+                coroutineScope.launch {
+                    for (uri in uris) {
+                        val newId = onImportFile(uri)
+                        if (newId != null) {
+                            successCount++
+                            if (firstImportedId == null) firstImportedId = newId
+                        } else {
+                            failCount++
                         }
                     }
-                    return true
+                    permission?.release()
+                    val msg = when {
+                        failCount == 0 && successCount > 1 -> "Imported $successCount files!"
+                        failCount == 0 -> "Imported successfully!"
+                        successCount == 0 -> "Failed to import any files. Ensure format is supported."
+                        else -> "Imported $successCount, failed $failCount."
+                    }
+                    snackbarHostState.showSnackbar(msg)
+                    if (firstImportedId != null && uris.size == 1) {
+                        onNoteClick(firstImportedId)
+                    }
                 }
-                permission?.release()
-                return false
+                return true
             }
         }
     }
@@ -327,9 +341,6 @@ fun HistoryScreen(
                         Icons.Default.History to "Oldest",
                         Icons.AutoMirrored.Filled.Sort to "A–Z"
                     )
-                    // ButtonGroup en material3 1.5.0-alpha28 exige 'overflowIndicator' y su
-                    // content lambda no es @Composable. Se usa el mismo patrón Row + ToggleButton
-                    // que ya compila en Settings/Onboarding.
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
@@ -436,7 +447,6 @@ fun HistoryScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
-                            // Botón explícito para editar label/color (antes solo long-press).
                             if (!isMultiSelectLabelMode) {
                                 BouncyIconButton(
                                     onClick = {
@@ -668,10 +678,17 @@ fun HistoryScreen(
                     .padding(innerPadding)
                     .dragAndDropTarget(
                         shouldStartDragAndDrop = { event ->
-                            event.mimeTypes().any { mimeType ->
+                            // Permisivo a propósito: los file managers reales no
+                            // siempre reportan los MIME types correctos para .binot,
+                            // y algunos envían lista vacía. Filtramos dentro de onDrop.
+                            val types = event.mimeTypes()
+                            types.isEmpty() ||
+                            types.any { mimeType ->
                                 mimeType.startsWith("audio/") ||
                                 mimeType == "application/zip" ||
-                                mimeType == "application/octet-stream"
+                                mimeType == "application/octet-stream" ||
+                                mimeType.startsWith("application/") ||
+                                mimeType == "*/*"
                             }
                         },
                         target = dragAndDropCallback
@@ -814,8 +831,6 @@ fun HistoryScreen(
         }
     }
 
-    // Picker unificado: reusa el mismo componente y la misma lógica de import que
-    // RecordScreen (ObinotFilePickerSheet + ImportExportHelper.importFile).
     if (showNativePickerSheet) {
         com.example.ui.components.ObinotFilePickerSheet(
             onDismiss = { showNativePickerSheet = false },
@@ -978,7 +993,7 @@ fun HistoryScreen(
                 override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
             }
         }
-        val updateListState = rememberLazyListState()
+        val updateScrollState = rememberScrollState()
 
         ModalBottomSheet(
             onDismissRequest = { viewModel.dismissUpdateNotification() },
@@ -1007,7 +1022,7 @@ fun HistoryScreen(
                 ) {
                     MarkdownText(
                         text = latestRelease!!.body ?: "Performance improvements and new features.",
-                        listState = updateListState,
+                        scrollState = updateScrollState,
                         highlightsInfo = null,
                         onSavedHighlightClick = { _, _, _, _, _ -> },
                         onResolveSelection = { null },
@@ -1028,11 +1043,7 @@ fun HistoryScreen(
 }
 
 // ============================================================
-// Selection menu — extraído para que no herede el opt-in
-// ExperimentalMaterial3ExpressiveApi del HistoryScreen, así el
-// compilador resuelve a la sobrecarga estándar de DropdownMenu
-// y DropdownMenuItem (las expresivas exigen 'overflowIndicator'
-// y 'label' respectivamente y ganaban la resolución).
+// Selection menu
 // ============================================================
 @Composable
 private fun SelectionDropdownMenu(
@@ -1094,7 +1105,6 @@ private fun LabelColorPicker(
         contentPadding = PaddingValues(vertical = 4.dp)
     ) {
         items(LabelEntity.FULL_PALETTE) { hex ->
-            // El primer swatch es "Dynamic": toma el color del tema del teléfono.
             val dynamic = isDynamicLabelColor(hex)
             val color = if (dynamic) {
                 MaterialTheme.colorScheme.secondaryContainer

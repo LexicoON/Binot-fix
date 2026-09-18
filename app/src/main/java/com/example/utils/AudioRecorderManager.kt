@@ -29,17 +29,17 @@ import kotlin.random.Random
  * Grabador de audio con dos modos:
  *
  * **Fast (mode 0)** — Solo [SpeechRecognizer]. Transcripción del teléfono en vivo.
- *   El audio NO se guarda en disco.
+ *   El audio NO se guarda en disco. Si el recognizer no está disponible, se usa
+ *   un modo simulado para no romper la UI (emuladores).
  *
- * **Accurate (mode 1)** — [MediaRecorder] + [SpeechRecognizer] en simultáneo.
- *   El audio SÍ se guarda, y además se captura la transcripción del teléfono
- *   como feedback inmediato para el usuario. Cuando el usuario abre la nota
- *   procesada, ve la transcripción del teléfono con un botón para re-analizar
- *   con la IA (que reemplaza el texto).
+ * **Accurate (mode 1)** — [MediaRecorder] siempre. El [SpeechRecognizer] en paralelo
+ *   es OPCIONAL y solo se activa si [liveTranscriptEnabled] es true. Esto existe
+ *   porque el recognizer simultáneo falla o se traba en muchos dispositivos, y
+ *   para esos casos el usuario prefiere solo grabar audio y dejar que la IA lo
+ *   transcriba después. Default OFF.
  *
- * El [SpeechRecognizer] en modo 1 es best-effort: si falla, la grabación
- * continúa sin interrupciones. La transcripción en vivo se pierde pero el
- * audio queda intacto.
+ * El [SpeechRecognizer] en modo 1 es best-effort incluso cuando está habilitado:
+ * si falla, la grabación continúa sin interrupciones.
  */
 class AudioRecorderManager(private val context: Context) {
 
@@ -59,6 +59,7 @@ class AudioRecorderManager(private val context: Context) {
 
     private var currentRecordMode = 0
     private var speechRecognizerAvailable = false
+    private var currentLiveTranscriptEnabled = false
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val coroutineScope = CoroutineScope(Dispatchers.Main)
@@ -86,7 +87,7 @@ class AudioRecorderManager(private val context: Context) {
     private var originalHapticFeedbackStatus = -1
 
     // ============================================================
-    // Volume muting (sin cambios respecto al original)
+    // Volume muting
     // ============================================================
 
     private fun forceMuteAllBeeps() {
@@ -170,34 +171,47 @@ class AudioRecorderManager(private val context: Context) {
     /**
      * Inicia la grabación.
      * - mode 0 (Fast): solo SpeechRecognizer. Audio NO se guarda.
-     * - mode 1 (Accurate): MediaRecorder + SpeechRecognizer simultáneos.
-     *   Audio SÍ se guarda, y la transcripción del teléfono se captura como bonus.
+     * - mode 1 (Accurate): MediaRecorder siempre. SpeechRecognizer solo si
+     *   [liveTranscriptEnabled] es true y el dispositivo lo soporta.
+     *
+     * @param isEmulator si true, evita arrancar el recognizer real.
+     * @param mode 0 = Fast, 1 = Accurate.
+     * @param liveTranscriptEnabled si true, corre el SpeechRecognizer en paralelo
+     *   durante Accurate para mostrar texto en vivo. Default false.
      */
-    fun startRecording(isEmulator: Boolean = false, mode: Int = 0) {
+    fun startRecording(
+        isEmulator: Boolean = false,
+        mode: Int = 0,
+        liveTranscriptEnabled: Boolean = false
+    ) {
         if (_isRecording.value) return
 
         _isRecording.value = true
         _recognizedText.value = ""
         isPaused = false
         currentRecordMode = mode
+        currentLiveTranscriptEnabled = liveTranscriptEnabled
         speechRecognizerAvailable = false
 
         forceMuteAllBeeps()
 
         if (mode == 1) {
-            // 1) Primero el audio, que es lo crítico
+            // 1) Primero el audio, que es lo crítico.
             prepareMediaRecorder()
 
-            // 2) Luego el speech recognizer como best-effort
-            if (!isEmulator && SpeechRecognizer.isRecognitionAvailable(context)) {
+            // 2) SpeechRecognizer en paralelo SOLO si el usuario lo pidió.
+            //    En la gran mayoría de dispositivos esto es lo que causaba
+            //    comportamiento errático del recognizer, así que ahora es opt-in.
+            if (liveTranscriptEnabled && !isEmulator && SpeechRecognizer.isRecognitionAvailable(context)) {
                 speechRecognizerAvailable = true
                 initSpeechRecognizer()
             }
 
-            // Amplitud desde MediaRecorder (más fiable que el recognizer)
+            // Amplitud desde MediaRecorder (más fiable que el recognizer).
+            // Siempre se activa, sin importar el estado del live transcript.
             startAmplitudePolling()
         } else {
-            // Fast: solo recognizer
+            // Fast: el recognizer ES la grabación. Debe correr siempre.
             if (isEmulator || !SpeechRecognizer.isRecognitionAvailable(context)) {
                 startSimulatedRecording()
             } else {
@@ -263,7 +277,8 @@ class AudioRecorderManager(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 try { mediaRecorder?.resume() } catch (e: Exception) { Log.w(TAG, "resume mr", e) }
             }
-            if (speechRecognizerAvailable) initSpeechRecognizer()
+            // Solo reactivar el recognizer si el usuario lo tenía encendido.
+            if (currentLiveTranscriptEnabled && speechRecognizerAvailable) initSpeechRecognizer()
             startAmplitudePolling()
         } else {
             if (speechRecognizerAvailable) {
@@ -284,7 +299,7 @@ class AudioRecorderManager(private val context: Context) {
 
                     override fun onRmsChanged(rmsdB: Float) {
                         // En modo Fast, la amplitud viene del recognizer.
-                        // En modo Accurate, la amplitud viene del MediaRecorder (más fiable).
+                        // En modo Accurate, la amplitud viene del MediaRecorder.
                         if (currentRecordMode == 0 && _isRecording.value && !isPaused) {
                             _amplitude.value = (rmsdB / 10f).coerceIn(0f, 1f)
                         }
@@ -297,7 +312,6 @@ class AudioRecorderManager(private val context: Context) {
                     }
 
                     override fun onError(error: Int) {
-                        // Errores que NO deben reintentar (romperían el flujo)
                         val fatalError = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
                                 error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
                                 error == SpeechRecognizer.ERROR_CLIENT
@@ -308,16 +322,10 @@ class AudioRecorderManager(private val context: Context) {
                         }
 
                         if (_isRecording.value && !isPaused) {
-                            // En modo Fast, reintentar siempre.
-                            // En modo Accurate, reintentar pero sin spamear: si tras el retry
-                            // vuelve a fallar el recognizer, marcar como no disponible para
-                            // no romper el audio.
-                            if (currentRecordMode == 0) {
-                                initSpeechRecognizer()
-                            } else {
-                                // Un error transitorio en modo 1: reintentamos una vez.
-                                initSpeechRecognizer()
-                            }
+                            // En ambos modos se reintenta, pero en Accurate solo si
+                            // el usuario tenía el flag prendido (si no, ni siquiera
+                            // estamos acá).
+                            initSpeechRecognizer()
                         }
                     }
 
@@ -406,7 +414,6 @@ class AudioRecorderManager(private val context: Context) {
         amplitudeJob?.cancel()
         amplitudeJob = null
 
-        // Detener MediaRecorder
         if (currentRecordMode == 1) {
             try {
                 mediaRecorder?.stop()
@@ -418,7 +425,6 @@ class AudioRecorderManager(private val context: Context) {
             mediaRecorder = null
         }
 
-        // Detener SpeechRecognizer
         try {
             speechRecognizer?.stopListening()
             speechRecognizer?.destroy()
@@ -426,6 +432,7 @@ class AudioRecorderManager(private val context: Context) {
             Log.w(TAG, "stop SpeechRecognizer", e)
         }
         speechRecognizer = null
+        speechRecognizerAvailable = false
 
         _amplitude.value = 0f
 

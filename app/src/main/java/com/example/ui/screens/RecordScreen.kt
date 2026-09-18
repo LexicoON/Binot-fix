@@ -14,6 +14,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,6 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.mimeTypes
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -58,6 +63,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.ui.components.AudioFilePickerSheet
+import com.example.ui.components.BouncyButton
+import com.example.ui.components.observeBouncyPress
 import com.example.viewmodel.RecordViewModel
 import com.example.ui.components.AudioWaveform
 import kotlinx.coroutines.launch
@@ -88,6 +95,7 @@ fun RecordScreen(
     val recognizedText by viewModel.recognizedText.collectAsState()
     val recordingSeconds by viewModel.recordingSeconds.collectAsState()
     val recentNotes by viewModel.recentNotes.collectAsState()
+    val liveTranscriptEnabled by viewModel.liveTranscriptEnabled.collectAsState()
 
     val visibleNotes = remember(recentNotes) {
         recentNotes.filterNot { note ->
@@ -110,6 +118,7 @@ fun RecordScreen(
     var showLovePopup by remember { mutableStateOf(false) }
     var showAudioPicker by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
+    var isDragHovering by remember { mutableStateOf(false) }
 
     var hasPermission by remember {
         mutableStateOf(
@@ -152,22 +161,96 @@ fun RecordScreen(
     val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
 
-    // FIX: el AudioRecorderManager YA corre el SpeechRecognizer también en Accurate (mode 1),
-    // pero esta pantalla seguía mostrando el cartel de "disabled" y tapaba el resultado.
-    // Ahora la transcripción en vivo se muestra en ambos modos.
+    // En Accurate, el cartel depende del toggle "Live Transcript" de Settings:
+    // - ON:  hay recognizer corriendo, mostramos texto o "Listening..."
+    // - OFF: no hay recognizer, el cartel aclara que la IA transcribirá el audio.
     val displayLiveText = when {
         recognizedText.isNotEmpty() -> recognizedText
-        recordMode == 1 -> "Listening... (audio is being saved for AI analysis)"
+        recordMode == 1 && liveTranscriptEnabled -> "Listening... (audio is being saved for AI analysis)"
+        recordMode == 1 && !liveTranscriptEnabled -> "Recording audio... it will be transcribed by AI when you open the note."
         else -> "Waiting for voice input..."
     }
 
     val scrollState = rememberScrollState()
+
+    // Drag & drop handler para audio y .binot. Se usa shouldStartDragAndDrop permisivo
+    // porque algunos file managers envían MIME vacío o application/octet-stream para
+    // archivos .binot, y rechazarlos en la entrada hace que el target nunca se active.
+    val dragDropTarget = remember(context, coroutineScope, snackbarHostState, onImportFile) {
+        object : DragAndDropTarget {
+            override fun onStarted(event: DragAndDropEvent) {
+                isDragHovering = true
+            }
+            override fun onEnded(event: DragAndDropEvent) {
+                isDragHovering = false
+            }
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                isDragHovering = false
+                val activity = context as? android.app.Activity
+                val androidEvent = event.toAndroidDragEvent()
+                val permission = activity?.requestDragAndDropPermissions(androidEvent)
+
+                val clipData = androidEvent.clipData
+                if (clipData != null && clipData.itemCount > 0) {
+                    var firstImportedId: Int? = null
+                    var successCount = 0
+                    var failCount = 0
+                    coroutineScope.launch {
+                        isImporting = true
+                        for (i in 0 until clipData.itemCount) {
+                            val uri = clipData.getItemAt(i).uri
+                            if (uri != null) {
+                                val newId = onImportFile(uri)
+                                if (newId != null) {
+                                    successCount++
+                                    if (firstImportedId == null) firstImportedId = newId
+                                } else {
+                                    failCount++
+                                }
+                            }
+                        }
+                        isImporting = false
+                        permission?.release()
+
+                        val msg = when {
+                            failCount == 0 && successCount > 1 -> "Imported $successCount files!"
+                            failCount == 0 -> "Imported successfully!"
+                            successCount == 0 -> "Failed to import any files. Ensure format is supported."
+                            else -> "Imported $successCount, failed $failCount."
+                        }
+                        snackbarHostState.showSnackbar(msg)
+                        if (firstImportedId != null && clipData.itemCount == 1) {
+                            onNoteClick(firstImportedId)
+                        }
+                    }
+                    return true
+                }
+                permission?.release()
+                return false
+            }
+        }
+    }
 
     with(animatedVisibilityScope) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.surfaceContainer)
+                .dragAndDropTarget(
+                    shouldStartDragAndDrop = { event ->
+                        // Permisivo a propósito: aceptamos cualquier drag y filtramos
+                        // dentro de onDrop. Los file managers reales no siempre
+                        // reportan los MIME types correctos para .binot.
+                        event.mimeTypes().isEmpty() ||
+                        event.mimeTypes().any { mimeType ->
+                            mimeType.startsWith("audio/") ||
+                            mimeType == "application/zip" ||
+                            mimeType == "application/octet-stream" ||
+                            mimeType.startsWith("application/")
+                        }
+                    },
+                    target = dragDropTarget
+                )
         ) {
             M3ExpressiveBackground()
 
@@ -290,9 +373,6 @@ fun RecordScreen(
                                 .height(160.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            // CAMBIO: AnimatedVisibility cualificado explícitamente para evitar
-                            // que el overload ColumnScope.AnimatedVisibility (heredado del Column
-                            // padre) gane la resolución de overloads dentro de un Box.
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = isRecording || isPaused,
                                 enter = fadeIn(tween(400)) + scaleIn(initialScale = 0.8f, animationSpec = spring(dampingRatio = 0.8f)),
@@ -323,25 +403,11 @@ fun RecordScreen(
                                         val noteInteraction = remember { MutableInteractionSource() }
                                         val noteScale = remember { Animatable(1f) }
                                         LaunchedEffect(noteInteraction) {
-                                            noteInteraction.interactions.collect { interaction ->
-                                                when (interaction) {
-                                                    is PressInteraction.Press -> {
-                                                        noteScale.animateTo(
-                                                            0.95f,
-                                                            spring(
-                                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                                stiffness = Spring.StiffnessMedium
-                                                            )
-                                                        )
-                                                    }
-                                                    is PressInteraction.Release, is PressInteraction.Cancel -> {
-                                                        noteScale.animateTo(
-                                                            1f,
-                                                            spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                            observeBouncyPress(
+                                                interactionSource = noteInteraction,
+                                                scale = noteScale,
+                                                pressedScale = 0.95f
+                                            )
                                         }
 
                                         with(sharedTransitionScope) {
@@ -660,7 +726,6 @@ fun RecordScreen(
                             }
                         }
 
-                        // NUEVO: botón Import al lado del Record (solo cuando no está grabando)
                         if (!isSplit) {
                             Box(
                                 modifier = Modifier
@@ -699,7 +764,7 @@ fun RecordScreen(
                 Spacer(modifier = Modifier.height(32.dp))
             }
 
-            // Import overlay
+            // Overlay de import (para import activado desde picker O drag & drop)
             if (isImporting) {
                 Box(
                     modifier = Modifier
@@ -714,9 +779,46 @@ fun RecordScreen(
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            text = "Importing audio...",
+                            text = "Importing...",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            // Overlay de drag hover
+            if (isDragHovering) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 32.dp, vertical = 24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Audiotrack,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Drop to import",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "Audio files or .binot backups",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                     }
                 }
@@ -724,7 +826,6 @@ fun RecordScreen(
         }
     }
 
-    // Audio picker
     // SAF fallback: se usa cuando el picker nativo (beta) está apagado.
     val safAudioLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -766,7 +867,6 @@ fun RecordScreen(
         )
     }
 
-    // Easter egg + Love popup (sin cambios)
     if (showEasterEggDialog) {
         AlertDialog(
             onDismissRequest = {

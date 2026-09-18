@@ -110,6 +110,12 @@ class SettingsViewModel(
         initialValue = false
     )
 
+    val liveTranscriptEnabled: StateFlow<Boolean> = settingsRepository.liveTranscriptFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+
     val autoCompressionMode: StateFlow<Int> = settingsRepository.autoCompressionModeFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -170,6 +176,10 @@ class SettingsViewModel(
 
     fun saveBackgroundRecording(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.saveBackgroundRecording(enabled) }
+    }
+
+    fun saveLiveTranscript(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.saveLiveTranscript(enabled) }
     }
 
     fun saveAiLanguage(language: String) {

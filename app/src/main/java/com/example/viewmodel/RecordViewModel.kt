@@ -21,9 +21,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -39,6 +41,18 @@ class RecordViewModel(
     val isRecording: StateFlow<Boolean> = audioRecorderManager.isRecording
     val amplitude: StateFlow<Float> = audioRecorderManager.amplitude
     val recognizedText: StateFlow<String> = audioRecorderManager.recognizedText
+
+    /**
+     * Estado del toggle "Live Transcript" (Settings → Recording Mode → Accurate).
+     * RecordScreen lo usa para decidir qué cartel mostrar durante la grabación:
+     * - ON:  "Listening..." (hay recognizer corriendo)
+     * - OFF: "Recording... (will transcribe with AI)" (solo se graba audio)
+     */
+    val liveTranscriptEnabled: StateFlow<Boolean> = settingsRepository.liveTranscriptFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
 
     private val _recordingSeconds = MutableStateFlow(0)
     val recordingSeconds: StateFlow<Int> = _recordingSeconds.asStateFlow()
@@ -83,7 +97,15 @@ class RecordViewModel(
         } else {
             _isPaused.value = false
             pendingAudioPath = null
-            audioRecorderManager.startRecording(isEmulator, recordMode)
+            // Leer el flag de live transcript para pasárselo al manager.
+            // Fast (mode 0) siempre corre el recognizer; Accurate (mode 1) lo hace
+            // solo si el usuario lo pidió.
+            val liveTranscript = liveTranscriptEnabled.value
+            audioRecorderManager.startRecording(
+                isEmulator = isEmulator,
+                mode = recordMode,
+                liveTranscriptEnabled = liveTranscript
+            )
             startTimer()
             maybeStartBackgroundService()
         }
@@ -157,11 +179,14 @@ class RecordViewModel(
 
         val path = pendingAudioPath
 
-        // Modo Accurate (1): guardamos el audio y, si el recognizer del teléfono
-        // alcanzó a capturar algo, se adjunta como transcripción preliminar con
-        // un marcador. El ResultViewModel lo detecta y ofrece re-analizar con IA.
-        // Si no hay texto del teléfono, se guarda como "Pending Transcription"
-        // y se procesa automáticamente al abrir.
+        // Modo Accurate (1): se guarda el audio y, si el live transcript estaba
+        // activado y el recognizer capturó algo, se adjunta como transcripción
+        // preliminar con un marcador. Si no hay texto, se guarda como
+        // "Pending Transcription" y el ResultViewModel dispara la transcripción
+        // con IA automáticamente al abrir la nota.
+        //
+        // Modo Fast (0): se guarda solo el texto del recognizer. Si está vacío,
+        // no se guarda la nota.
         val text = if (recordMode == 1) {
             val phoneText = recognizedText.value.trim()
             if (phoneText.isNotEmpty()) {
@@ -173,7 +198,6 @@ class RecordViewModel(
             recognizedText.value.trim()
         }
 
-        // Mencegah save kalau modo Fast tapi teksnya kosong
         if (recordMode == 0 && text.isEmpty()) {
             return false
         }
@@ -188,8 +212,8 @@ class RecordViewModel(
 
         val id = withContext(Dispatchers.IO) { repository.insert(note).toInt() }
 
-        // MIX (provider == 2): títulos se alternan entre Groq y Gemini para repartir carga.
-        // Fuera de Mix, se usa el provider directo.
+        // Dynamic (provider == 2): los títulos se alternan entre Groq y Gemini para
+        // repartir carga. Fuera de Dynamic, se usa el provider directo.
         if (provider == 2) {
             val effectiveProvider = if (settingsRepository.incrementMixCounter() % 2 == 0) 0 else 1
             val apiKey = if (effectiveProvider == 1) groqApiKey else geminiApiKey
@@ -214,7 +238,6 @@ class RecordViewModel(
                 val userPrompt = "Text:\n${text.take(500)}"
 
                 val aiTitle = if (provider == 1) {
-                    // Groq: modelo Lite para títulos
                     val request = GroqChatRequest(
                         model = GroqModels.GPT_OSS_20B,
                         messages = listOf(
@@ -225,7 +248,6 @@ class RecordViewModel(
                     RetrofitClient.groqService.generateContent("Bearer $apiKey", request)
                         .choices?.firstOrNull()?.message?.content?.trim()
                 } else {
-                    // Gemini: modelo Lite para títulos
                     val request = GenerateContentRequest(
                         systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
                         contents = listOf(Content(parts = listOf(Part(text = userPrompt))))

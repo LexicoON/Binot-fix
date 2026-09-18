@@ -36,10 +36,8 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,6 +70,7 @@ import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -204,7 +203,13 @@ fun ResultScreen(
         selectionResetKey++
     }
 
-    val listState = rememberLazyListState()
+    // Reemplazo de LazyListState por ScrollState: MarkdownText ya no es lazy
+    // (ver comentario en MarkdownText.kt), así que necesitamos pixel-scroll.
+    // markdownLinePositions se llena desde dentro de MarkdownText para permitir
+    // el scroll-to-search-result sin LazyListState.
+    val markdownScrollState = rememberScrollState()
+    val markdownLinePositions: SnapshotStateMap<Int, Int> = remember { mutableStateMapOf() }
+
     val rawTextScrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -227,11 +232,11 @@ fun ResultScreen(
                 when {
                     distanceFromTop in 0f..edgeThreshold -> {
                         val speed = maxScrollSpeedPx * (1f - distanceFromTop / edgeThreshold)
-                        if (usingMarkdown) listState.scrollBy(-speed) else rawTextScrollState.scrollBy(-speed)
+                        if (usingMarkdown) markdownScrollState.scrollBy(-speed) else rawTextScrollState.scrollBy(-speed)
                     }
                     distanceFromBottom in 0f..edgeThreshold -> {
                         val speed = maxScrollSpeedPx * (1f - distanceFromBottom / edgeThreshold)
-                        if (usingMarkdown) listState.scrollBy(speed) else rawTextScrollState.scrollBy(speed)
+                        if (usingMarkdown) markdownScrollState.scrollBy(speed) else rawTextScrollState.scrollBy(speed)
                     }
                 }
             }
@@ -675,7 +680,7 @@ fun ResultScreen(
                                         val cleanSummary = note!!.summary!!.replace(Regex("<!--BINOT_META:.*?-->"), "").trimEnd()
                                         MarkdownText(
                                             text = cleanSummary,
-                                            listState = listState,
+                                            scrollState = markdownScrollState,
                                             highlightsInfo = note!!.highlightsInfo,
                                             onSavedHighlightClick = { word, noteText, line, start, end ->
                                                 currentHighlightWord = word
@@ -688,6 +693,7 @@ fun ResultScreen(
                                             onResolveSelection = { resolver -> resolveMarkdownSelection = resolver },
                                             highlightQuery = temporaryHighlight,
                                             fontFamily = selectedFont,
+                                            linePositions = markdownLinePositions,
                                             modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                                         )
                                     }
@@ -930,7 +936,7 @@ fun ResultScreen(
     if (showAiExplainSheet) {
         val explainResult by viewModel.explainResult.collectAsState()
         val isExplaining by viewModel.isExplaining.collectAsState()
-        val explainListState = rememberLazyListState()
+        val explainScrollState = rememberScrollState()
 
         val scrollWall = remember {
             object : NestedScrollConnection {
@@ -976,7 +982,7 @@ fun ResultScreen(
                     } else {
                         MarkdownText(
                             text = explainResult ?: "No explanation available.",
-                            listState = explainListState,
+                            scrollState = explainScrollState,
                             highlightsInfo = null,
                             onSavedHighlightClick = { _, _, _, _, _ -> },
                             onResolveSelection = { null },
@@ -986,7 +992,7 @@ fun ResultScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -1296,7 +1302,15 @@ fun ResultScreen(
                                     coroutineScope.launch {
                                         temporaryHighlight = searchHighlightQuery
                                         if (note!!.summary != null) {
-                                            listState.animateScrollToItem(index)
+                                            // Busca la Y del item en el mapa que llena MarkdownText.
+                                            // Si el line index exacto no está, cae al más cercano anterior
+                                            // (los items de bloque como tablas o mermaid ocupan varios
+                                            // line indices en el raw text pero solo uno en el mapa).
+                                            val target = markdownLinePositions[index]
+                                                ?: markdownLinePositions.keys.filter { it <= index }.maxOrNull()?.let { markdownLinePositions[it] }
+                                            if (target != null) {
+                                                markdownScrollState.animateScrollTo(target)
+                                            }
                                         } else {
                                             rawTextScrollState.animateScrollTo(index * 60)
                                         }

@@ -17,14 +17,15 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -47,6 +49,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -93,6 +96,14 @@ sealed class MarkdownItem {
     data class MermaidBlock(val rawText: String, val startLineIndex: Int) : MarkdownItem()
     data class CodeBlock(val code: String, val language: String?, val startLineIndex: Int) : MarkdownItem()
     data class Table(val rows: List<List<String>>, val startLineIndex: Int) : MarkdownItem()
+}
+
+private fun MarkdownItem.lineKey(): Int = when (this) {
+    is MarkdownItem.NativeLine -> lineIndex
+    is MarkdownItem.MathBlock -> startLineIndex
+    is MarkdownItem.MermaidBlock -> startLineIndex
+    is MarkdownItem.CodeBlock -> startLineIndex
+    is MarkdownItem.Table -> startLineIndex
 }
 
 // ============================================================
@@ -198,7 +209,7 @@ fun KaTeXWebView(
     assets: KaTeXAssets,
     textColor: Color,
     fontFamily: FontFamily,
-    heightCache: androidx.compose.runtime.snapshots.SnapshotStateMap<String, Int>,
+    heightCache: SnapshotStateMap<String, Int>,
     modifier: Modifier = Modifier
 ) {
     if (!assets.isReady) return
@@ -390,7 +401,7 @@ fun MermaidWebView(
     mermaidContent: String,
     assets: MermaidAssets,
     isDarkTheme: Boolean,
-    heightCache: androidx.compose.runtime.snapshots.SnapshotStateMap<String, Int>,
+    heightCache: SnapshotStateMap<String, Int>,
     modifier: Modifier = Modifier
 ) {
     if (!assets.isReady) return
@@ -590,7 +601,6 @@ private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
         val line = lines[i]
         val trimmed = line.trim()
 
-        // 1. Mermaid block (```mermaid)
         if (trimmed.lowercase().startsWith("```mermaid")) {
             val startIndex = i
             val content = StringBuilder()
@@ -600,12 +610,11 @@ private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
                 content.append(lines[i])
                 i++
             }
-            if (i < lines.size) i++ // consume closing fence
+            if (i < lines.size) i++
             items.add(MarkdownItem.MermaidBlock(content.toString(), startIndex))
             continue
         }
 
-        // 2. Generic code block (```)
         if (trimmed.startsWith("```")) {
             val startIndex = i
             val language = trimmed.removePrefix("```").trim().ifBlank { null }
@@ -616,21 +625,18 @@ private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
                 code.append(lines[i])
                 i++
             }
-            if (i < lines.size) i++ // consume closing fence
+            if (i < lines.size) i++
             items.add(MarkdownItem.CodeBlock(code.toString(), language, startIndex))
             continue
         }
 
-        // 3. Math block ($$)
         if (trimmed.startsWith("$$")) {
             val startIndex = i
-            // Single-line case: $$ ... $$
             if (trimmed.length > 2 && trimmed.endsWith("$$")) {
                 items.add(MarkdownItem.MathBlock(line, startIndex))
                 i++
                 continue
             }
-            // Multi-line case
             val content = StringBuilder(line)
             i++
             while (i < lines.size) {
@@ -645,7 +651,6 @@ private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
             continue
         }
 
-        // 4. Table (|...|)
         if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 1) {
             val startIndex = i
             val tableLines = mutableListOf<String>()
@@ -656,10 +661,8 @@ private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
                     i++
                 } else break
             }
-            // Parse rows, skipping separator line (second line with |---|---|)
             val rows = tableLines
                 .filterIndexed { idx, l ->
-                    // skip separator rows like |---|---|
                     !(idx == 1 && l.replace(" ", "").matches(Regex("\\|[-:]+(\\|[-:]+)+\\|")))
                 }
                 .map { row ->
@@ -671,7 +674,6 @@ private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
             continue
         }
 
-        // 5. Native line
         items.add(MarkdownItem.NativeLine(line, i))
         i++
     }
@@ -681,17 +683,31 @@ private fun parseMarkdownItems(lines: List<String>): List<MarkdownItem> {
 
 // ============================================================
 // Main component
+//
+// Usamos Column + verticalScroll en vez de LazyColumn a propósito:
+// LazyColumn recicla items cuando salen del viewport, lo que destruye
+// los WebViews de KaTeX y Mermaid. Al volver a scrollear hacia ellos,
+// se reconstruyen desde cero (recargan HTML, re-parsean JS, re-renderizan
+// SVG), lo que produce lag perceptible en cada pasada.
+//
+// Con Column, todos los items se componen una vez y se mantienen vivos.
+// El costo es más memoria para notas con muchos diagramas, pero para el
+// caso típico (5-20 items por nota) el trade-off es claramente favorable.
+//
+// `linePositions` es opcional: si el caller lo pasa, se van llenando
+// los offsets Y de cada item para permitir scroll-to-line sin LazyListState.
 // ============================================================
 
 @Composable
 fun MarkdownText(
     text: String,
-    listState: LazyListState,
+    scrollState: ScrollState,
     highlightsInfo: String? = null,
     onSavedHighlightClick: (text: String, note: String, line: Int, start: Int, end: Int) -> Unit = { _, _, _, _, _ -> },
     onResolveSelection: (resolver: (Rect, String) -> Triple<Int, Int, Int>?) -> Unit = {},
     highlightQuery: String = "",
     fontFamily: FontFamily = FontFamily.SansSerif,
+    linePositions: SnapshotStateMap<Int, Int>? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -714,8 +730,6 @@ fun MarkdownText(
     }
 
     val lines = remember(text) { text.split("\n") }
-
-    // Pre-parse the entire markdown into items. Recomputed only when text changes.
     val markdownItems = remember(text) { parseMarkdownItems(lines) }
 
     val savedHighlights = remember(highlightsInfo) {
@@ -748,7 +762,6 @@ fun MarkdownText(
     val webViewHeightCache = remember { androidx.compose.runtime.snapshots.SnapshotStateMap<String, Int>() }
     val isDarkTheme = isSystemInDarkTheme()
 
-    // Clean up registry + cache on dispose to avoid memory leaks when leaving screen
     DisposableEffect(Unit) {
         onDispose {
             lineRegistry.clear()
@@ -762,115 +775,189 @@ fun MarkdownText(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier.padding(horizontal = 12.dp)
+    Column(
+        modifier = modifier
+            .verticalScroll(scrollState)
+            .padding(horizontal = 12.dp)
     ) {
-        item { Spacer(modifier = Modifier.height(8.dp)) }
+        Spacer(modifier = Modifier.height(8.dp))
 
-        items(
-            count = markdownItems.size,
-            key = { index ->
-                val item = markdownItems[index]
+        markdownItems.forEach { item ->
+            val lineKey = item.lineKey()
+
+            Box(
+                modifier = Modifier.onGloballyPositioned { coords ->
+                    // positionInParent() en un Column con verticalScroll nos da
+                    // la posición dentro del contenido del scroll, que es
+                    // exactamente el offset al que hay que hacer animateScrollTo.
+                    linePositions?.set(lineKey, coords.positionInParent().y.toInt())
+                }
+            ) {
                 when (item) {
-                    is MarkdownItem.MathBlock -> "math_${item.startLineIndex}"
-                    is MarkdownItem.MermaidBlock -> "mermaid_${item.startLineIndex}"
-                    is MarkdownItem.CodeBlock -> "code_${item.startLineIndex}"
-                    is MarkdownItem.Table -> "table_${item.startLineIndex}"
-                    is MarkdownItem.NativeLine -> "line_${item.lineIndex}"
-                }
-            }
-        ) { index ->
-            when (val item = markdownItems[index]) {
-                is MarkdownItem.MathBlock -> {
-                    KaTeXWebView(
-                        mathContent = item.rawText,
-                        assets = katexAssets,
-                        textColor = MaterialTheme.colorScheme.onBackground,
-                        fontFamily = fontFamily,
-                        heightCache = webViewHeightCache,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-
-                is MarkdownItem.MermaidBlock -> {
-                    MermaidWebView(
-                        mermaidContent = item.rawText,
-                        assets = mermaidAssets,
-                        isDarkTheme = isDarkTheme,
-                        heightCache = webViewHeightCache,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                }
-
-                is MarkdownItem.CodeBlock -> {
-                    CodeBlockView(
-                        code = item.code,
-                        language = item.language,
-                        fontFamily = fontFamily
-                    )
-                }
-
-                is MarkdownItem.Table -> {
-                    TableView(
-                        rows = item.rows,
-                        fontFamily = fontFamily
-                    )
-                }
-
-                is MarkdownItem.NativeLine -> {
-                    val lineIndex = item.lineIndex
-                    val line = item.text
-                    val indentSpaces = line.takeWhile { it == ' ' || it == '\t' }.length
-                    val trimmedLine = line.trimStart()
-
-                    val lineHighlights = remember(savedHighlights, lineIndex) {
-                        savedHighlights.filter { it.line == lineIndex }
-                    }
-                    val legacyHighlights = remember(savedHighlights) {
-                        savedHighlights.filter { it.start < 0 }
+                    is MarkdownItem.MathBlock -> {
+                        KaTeXWebView(
+                            mathContent = item.rawText,
+                            assets = katexAssets,
+                            textColor = MaterialTheme.colorScheme.onBackground,
+                            fontFamily = fontFamily,
+                            heightCache = webViewHeightCache,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
                     }
 
-                    when {
-                        // Horizontal rule
-                        trimmedLine.matches(Regex("^(---|\\*\\*\\*|___)$")) -> {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant
-                            )
+                    is MarkdownItem.MermaidBlock -> {
+                        MermaidWebView(
+                            mermaidContent = item.rawText,
+                            assets = mermaidAssets,
+                            isDarkTheme = isDarkTheme,
+                            heightCache = webViewHeightCache,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                    }
+
+                    is MarkdownItem.CodeBlock -> {
+                        CodeBlockView(
+                            code = item.code,
+                            language = item.language,
+                            fontFamily = fontFamily
+                        )
+                    }
+
+                    is MarkdownItem.Table -> {
+                        TableView(
+                            rows = item.rows,
+                            fontFamily = fontFamily
+                        )
+                    }
+
+                    is MarkdownItem.NativeLine -> {
+                        val lineIndex = item.lineIndex
+                        val line = item.text
+                        val indentSpaces = line.takeWhile { it == ' ' || it == '\t' }.length
+                        val trimmedLine = line.trimStart()
+
+                        val lineHighlights = remember(savedHighlights, lineIndex) {
+                            savedHighlights.filter { it.line == lineIndex }
+                        }
+                        val legacyHighlights = remember(savedHighlights) {
+                            savedHighlights.filter { it.start < 0 }
                         }
 
-                        // Headings
-                        trimmedLine.startsWith("# ") -> {
-                            Text(
-                                text = trimmedLine.removePrefix("# ").trim(),
-                                style = MaterialTheme.typography.displaySmall.copy(fontFamily = fontFamily),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 32.dp, bottom = 16.dp)
-                            )
-                        }
-                        trimmedLine.startsWith("## ") -> {
-                            Text(
-                                text = trimmedLine.removePrefix("## ").trim(),
-                                style = MaterialTheme.typography.headlineMedium.copy(fontFamily = fontFamily),
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(top = 24.dp, bottom = 12.dp)
-                            )
-                        }
-                        trimmedLine.startsWith("### ") -> {
-                            Text(
-                                text = trimmedLine.removePrefix("### ").trim(),
-                                style = MaterialTheme.typography.titleLarge.copy(fontFamily = fontFamily),
-                                color = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                            )
-                        }
+                        when {
+                            trimmedLine.matches(Regex("^(---|\\*\\*\\*|___)$")) -> {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 16.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant
+                                )
+                            }
 
-                        // Blockquote
-                        trimmedLine.startsWith("> ") || trimmedLine == ">" -> {
-                            BlockQuoteLine(
-                                text = trimmedLine.removePrefix(">").trimStart(),
+                            trimmedLine.startsWith("# ") -> {
+                                Text(
+                                    text = trimmedLine.removePrefix("# ").trim(),
+                                    style = MaterialTheme.typography.displaySmall.copy(fontFamily = fontFamily),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 32.dp, bottom = 16.dp)
+                                )
+                            }
+                            trimmedLine.startsWith("## ") -> {
+                                Text(
+                                    text = trimmedLine.removePrefix("## ").trim(),
+                                    style = MaterialTheme.typography.headlineMedium.copy(fontFamily = fontFamily),
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(top = 24.dp, bottom = 12.dp)
+                                )
+                            }
+                            trimmedLine.startsWith("### ") -> {
+                                Text(
+                                    text = trimmedLine.removePrefix("### ").trim(),
+                                    style = MaterialTheme.typography.titleLarge.copy(fontFamily = fontFamily),
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                                )
+                            }
+
+                            trimmedLine.startsWith("> ") || trimmedLine == ">" -> {
+                                BlockQuoteLine(
+                                    text = trimmedLine.removePrefix(">").trimStart(),
+                                    lineIndex = lineIndex,
+                                    highlightQuery = highlightQuery,
+                                    lineHighlights = lineHighlights,
+                                    legacyHighlights = legacyHighlights,
+                                    onSavedHighlightClick = onSavedHighlightClick,
+                                    highlightBgColor = highlightBgColor,
+                                    highlightTextColor = highlightTextColor,
+                                    fontFamily = fontFamily,
+                                    lineRegistry = lineRegistry
+                                )
+                            }
+
+                            trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ") -> {
+                                val paddingStart = 16.dp + (indentSpaces * 6).dp
+                                val prefixLen = indentSpaces + 2
+                                Row(modifier = Modifier.padding(start = paddingStart, top = 8.dp, bottom = 8.dp)) {
+                                    Text(
+                                        text = if (indentSpaces > 0) "◦" else "•",
+                                        modifier = Modifier.width(24.dp),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                    BasicMarkdownLine(
+                                        text = trimmedLine.substring(2).trim(),
+                                        lineIndex = lineIndex,
+                                        prefixLen = prefixLen,
+                                        highlightQuery = highlightQuery,
+                                        lineHighlights = lineHighlights,
+                                        legacyHighlights = legacyHighlights,
+                                        onSavedHighlightClick = onSavedHighlightClick,
+                                        highlightBgColor = highlightBgColor,
+                                        highlightTextColor = highlightTextColor,
+                                        fontFamily = fontFamily,
+                                        lineRegistry = lineRegistry,
+                                        uriHandler = uriHandler,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+
+                            trimmedLine.matches(Regex("^[0-9]+\\.\\s.*")) -> {
+                                val dotIndex = trimmedLine.indexOf(".")
+                                val number = trimmedLine.substring(0, dotIndex + 1)
+                                val content = trimmedLine.substring(dotIndex + 1).trim()
+                                val paddingStart = 16.dp + (indentSpaces * 6).dp
+                                val contentStartInTrimmed = trimmedLine.indexOf(content, dotIndex + 1)
+                                val prefixLen = indentSpaces + (if (contentStartInTrimmed >= 0) contentStartInTrimmed else dotIndex + 1)
+
+                                Row(modifier = Modifier.padding(start = paddingStart, top = 8.dp, bottom = 8.dp)) {
+                                    Text(
+                                        text = number,
+                                        modifier = Modifier.width(32.dp),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                    BasicMarkdownLine(
+                                        text = content,
+                                        lineIndex = lineIndex,
+                                        prefixLen = prefixLen,
+                                        highlightQuery = highlightQuery,
+                                        lineHighlights = lineHighlights,
+                                        legacyHighlights = legacyHighlights,
+                                        onSavedHighlightClick = onSavedHighlightClick,
+                                        highlightBgColor = highlightBgColor,
+                                        highlightTextColor = highlightTextColor,
+                                        fontFamily = fontFamily,
+                                        lineRegistry = lineRegistry,
+                                        uriHandler = uriHandler,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+
+                            trimmedLine.isBlank() -> Spacer(modifier = Modifier.height(16.dp))
+
+                            else -> BasicMarkdownLine(
+                                text = trimmedLine,
                                 lineIndex = lineIndex,
+                                prefixLen = indentSpaces,
                                 highlightQuery = highlightQuery,
                                 lineHighlights = lineHighlights,
                                 legacyHighlights = legacyHighlights,
@@ -878,96 +965,17 @@ fun MarkdownText(
                                 highlightBgColor = highlightBgColor,
                                 highlightTextColor = highlightTextColor,
                                 fontFamily = fontFamily,
-                                lineRegistry = lineRegistry
+                                lineRegistry = lineRegistry,
+                                uriHandler = uriHandler,
+                                modifier = Modifier.padding(bottom = 8.dp)
                             )
                         }
-
-                        // Bullet list
-                        trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ") -> {
-                            val paddingStart = 16.dp + (indentSpaces * 6).dp
-                            val prefixLen = indentSpaces + 2
-                            Row(modifier = Modifier.padding(start = paddingStart, top = 8.dp, bottom = 8.dp)) {
-                                Text(
-                                    text = if (indentSpaces > 0) "◦" else "•",
-                                    modifier = Modifier.width(24.dp),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                BasicMarkdownLine(
-                                    text = trimmedLine.substring(2).trim(),
-                                    lineIndex = lineIndex,
-                                    prefixLen = prefixLen,
-                                    highlightQuery = highlightQuery,
-                                    lineHighlights = lineHighlights,
-                                    legacyHighlights = legacyHighlights,
-                                    onSavedHighlightClick = onSavedHighlightClick,
-                                    highlightBgColor = highlightBgColor,
-                                    highlightTextColor = highlightTextColor,
-                                    fontFamily = fontFamily,
-                                    lineRegistry = lineRegistry,
-                                    uriHandler = uriHandler,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // Numbered list
-                        trimmedLine.matches(Regex("^[0-9]+\\.\\s.*")) -> {
-                            val dotIndex = trimmedLine.indexOf(".")
-                            val number = trimmedLine.substring(0, dotIndex + 1)
-                            val content = trimmedLine.substring(dotIndex + 1).trim()
-                            val paddingStart = 16.dp + (indentSpaces * 6).dp
-                            val contentStartInTrimmed = trimmedLine.indexOf(content, dotIndex + 1)
-                            val prefixLen = indentSpaces + (if (contentStartInTrimmed >= 0) contentStartInTrimmed else dotIndex + 1)
-
-                            Row(modifier = Modifier.padding(start = paddingStart, top = 8.dp, bottom = 8.dp)) {
-                                Text(
-                                    text = number,
-                                    modifier = Modifier.width(32.dp),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                BasicMarkdownLine(
-                                    text = content,
-                                    lineIndex = lineIndex,
-                                    prefixLen = prefixLen,
-                                    highlightQuery = highlightQuery,
-                                    lineHighlights = lineHighlights,
-                                    legacyHighlights = legacyHighlights,
-                                    onSavedHighlightClick = onSavedHighlightClick,
-                                    highlightBgColor = highlightBgColor,
-                                    highlightTextColor = highlightTextColor,
-                                    fontFamily = fontFamily,
-                                    lineRegistry = lineRegistry,
-                                    uriHandler = uriHandler,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        trimmedLine.isBlank() -> Spacer(modifier = Modifier.height(16.dp))
-
-                        else -> BasicMarkdownLine(
-                            text = trimmedLine,
-                            lineIndex = lineIndex,
-                            prefixLen = indentSpaces,
-                            highlightQuery = highlightQuery,
-                            lineHighlights = lineHighlights,
-                            legacyHighlights = legacyHighlights,
-                            onSavedHighlightClick = onSavedHighlightClick,
-                            highlightBgColor = highlightBgColor,
-                            highlightTextColor = highlightTextColor,
-                            fontFamily = fontFamily,
-                            lineRegistry = lineRegistry,
-                            uriHandler = uriHandler,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
                     }
                 }
             }
         }
 
-        item { Spacer(modifier = Modifier.height(40.dp)) }
+        Spacer(modifier = Modifier.height(40.dp))
     }
 }
 
@@ -1110,7 +1118,6 @@ private fun BlockQuoteLine(
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Barra de acento a la izquierda
         Box(
             modifier = Modifier
                 .width(4.dp)
@@ -1159,7 +1166,6 @@ fun BasicMarkdownLine(
 ) {
     val annotatedString = remember(text, lineHighlights, legacyHighlights, highlightQuery, highlightBgColor, highlightTextColor) {
         buildAnnotatedString {
-            // Regex combinada: bold, italic, links
             val pattern = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)|\\*\\*(.*?)\\*\\*|\\*(.*?)\\*|_(.*?)_")
             var currentIndex = 0
             val matches = pattern.findAll(text)
@@ -1167,7 +1173,6 @@ fun BasicMarkdownLine(
             for (match in matches) {
                 append(text.substring(currentIndex, match.range.first))
                 when {
-                    // Link: [text](url)
                     match.groups[1] != null && match.groups[2] != null -> {
                         val linkText = match.groups[1]!!.value
                         val linkUrl = match.groups[2]!!.value
@@ -1188,19 +1193,16 @@ fun BasicMarkdownLine(
                             append(linkText)
                         }
                     }
-                    // Bold
                     match.groups[3] != null -> {
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
                             append(match.groups[3]!!.value)
                         }
                     }
-                    // Italic (*)
                     match.groups[4] != null -> {
                         withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
                             append(match.groups[4]!!.value)
                         }
                     }
-                    // Italic (_)
                     match.groups[5] != null -> {
                         withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
                             append(match.groups[5]!!.value)
@@ -1214,7 +1216,6 @@ fun BasicMarkdownLine(
             val plainString = this.toAnnotatedString().text
             val plainLength = plainString.length
 
-            // Saved highlights
             lineHighlights.forEach { item ->
                 val localStart = item.start - prefixLen
                 val localEnd = item.end - prefixLen
@@ -1233,7 +1234,6 @@ fun BasicMarkdownLine(
                 }
             }
 
-            // Legacy highlights
             val plainLower = plainString.lowercase()
             legacyHighlights.forEach { item ->
                 val wordLower = item.text.lowercase()
@@ -1255,7 +1255,6 @@ fun BasicMarkdownLine(
                 }
             }
 
-            // Query highlights
             if (highlightQuery.isNotBlank()) {
                 val queryLower = highlightQuery.lowercase()
                 var startIndex = plainLower.indexOf(queryLower)

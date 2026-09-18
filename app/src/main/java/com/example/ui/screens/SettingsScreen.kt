@@ -16,7 +16,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,7 +31,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GraphicEq
@@ -42,7 +40,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
@@ -61,10 +58,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyOutlinedButton
 import com.example.ui.components.bouncyClickable
@@ -124,9 +119,6 @@ private fun ExpressiveToggleGroup(
 
 // ============================================================
 // Selector genérico "fila con valor actual + hoja de selección".
-// Extraído del selector de Output Language para poder reusarlo tal
-// cual en Color Palette (y en cualquier otro picker de una sola
-// opción de una lista, sin duplicar la hoja modal cada vez).
 // ============================================================
 @Composable
 private fun SettingsSelectorRow(
@@ -217,14 +209,10 @@ private fun SettingsSelectionSheet(
 }
 
 /**
- * Insignia "BETA" reutilizable. Antes cada card la armaba a mano con un Surface+Text
- * suelto dentro de un Row sin reservar espacio para el título primero; en pantallas
- * angostas o con letra grande del sistema, el título (titleLarge) se comía todo el
- * ancho disponible y la insignia quedaba con ~0px, forzando que "BETA" se partiera
- * letra por letra en líneas verticales. Por eso el título que acompaña a esta
- * insignia SIEMPRE debe llevar `Modifier.weight(1f, fill = false)` + `maxLines = 1`
- * + `overflow = TextOverflow.Ellipsis`, para que Compose reserve el tamaño natural
- * de la insignia (fija, chica) ANTES de repartir lo que sobra al título.
+ * Insignia "BETA" reutilizable. El título que acompaña a esta insignia SIEMPRE
+ * debe llevar `Modifier.weight(1f, fill = false)` + `maxLines = 1` +
+ * `overflow = TextOverflow.Ellipsis`, para que Compose reserve el tamaño natural
+ * de la insignia antes de repartir lo que sobra al título.
  */
 @Composable
 private fun BetaBadge() {
@@ -292,6 +280,7 @@ fun SettingsScreen(
     val recordMode by viewModel.recordMode.collectAsState()
     val aiProvider by viewModel.aiProvider.collectAsState()
     val backgroundRecordingEnabled by viewModel.backgroundRecordingEnabled.collectAsState()
+    val liveTranscriptEnabled by viewModel.liveTranscriptEnabled.collectAsState()
     val autoCompressionMode by viewModel.autoCompressionMode.collectAsState()
     val nativePickerEnabled by viewModel.nativePickerEnabled.collectAsState()
     val colorStyle by viewModel.colorStyle.collectAsState()
@@ -510,8 +499,10 @@ fun SettingsScreen(
                     "• Tonal Spot: balanced, the Material default.\n" +
                     "• Vibrant: more saturated, livelier.\n" +
                     "• Expressive: higher contrast, bold accents.\n" +
-                    "• Rainbow: maximum color variety.\n" +
-                    "• Neutral: nearly monochrome, minimal.",
+                    "• Fruit Salad: colorful, three distinct hue families.\n" +
+                    "• Neutral: soft, muted colors with low saturation.\n" +
+                    "• Fidelity: keeps the seed color close to the source.\n" +
+                    "• Monochrome: grayscale, no color at all.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -942,6 +933,46 @@ fun SettingsScreen(
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        // Live Transcript solo aplica a Accurate. En Fast el recognizer
+                        // ES la grabación (no hay audio que transcribir después), así que
+                        // el toggle no tiene sentido ahí.
+                        if (recordMode == 1) {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "Live Transcript",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        BetaBadge()
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "Shows your phone's live speech-to-text while recording. Faster feedback, but the recognizer fails or freezes on many devices. When off, only the audio is recorded and the AI transcribes it later.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Switch(
+                                    checked = liveTranscriptEnabled,
+                                    onCheckedChange = { viewModel.saveLiveTranscript(it) }
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -964,6 +995,7 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            Spacer(modifier = Modifier.width(16.dp))
                             Switch(
                                 checked = backgroundRecordingEnabled,
                                 onCheckedChange = { enabled ->
@@ -971,16 +1003,7 @@ fun SettingsScreen(
                                     if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                         notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                                     }
-                                },
-                                thumbContent = if (backgroundRecordingEnabled) {
-                                    {
-                                        Icon(
-                                            imageVector = Icons.Filled.CheckCircle,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(SwitchDefaults.IconSize)
-                                        )
-                                    }
-                                } else null
+                                }
                             )
                         }
                     }
@@ -1022,7 +1045,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // ---------- Auto Compression (NEW) ----------
+                // ---------- Auto Compression ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -1085,7 +1108,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // ---------- Color Palette (NEW) ----------
+                // ---------- Color Palette ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
