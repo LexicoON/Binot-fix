@@ -14,8 +14,8 @@ android {
     applicationId = "com.aistudio.binot.xrztp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 19 
-    versionName = "1.1.7"
+    versionCode = 20 
+    versionName = "1.1.8"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
