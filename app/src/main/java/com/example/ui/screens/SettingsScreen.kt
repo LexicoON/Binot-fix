@@ -323,12 +323,14 @@ fun SettingsScreen(
     var showColorPaletteSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
 
-    val supportedLanguages = listOf(
+    val supportedLanguages = remember {
+        listOf(
         "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
         "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese",
         "Italian", "Hindi", "Bengali", "Urdu", "Turkish", "Vietnamese", "Thai",
         "Dutch", "Polish", "Swedish", "Malay"
     ).sorted()
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()

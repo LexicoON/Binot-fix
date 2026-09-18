@@ -184,12 +184,17 @@ fun HistoryScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id ->
-        notes.find { it.id == id }?.isPinned == true
+    // Mapa id → note para lookups O(1). Antes isAllPinned hacía notes.find{} en bucle,
+    // lo que con 100 notas y 20 seleccionadas eran 2000 comparaciones por recomposición.
+    val notesById = remember(notes) { notes.associateBy { it.id } }
+    val isAllPinned = remember(selectedNotes, notesById) {
+        selectedNotes.isNotEmpty() && selectedNotes.all { notesById[it]?.isPinned == true }
     }
 
-    val pinnedNotes = notes.filter { it.isPinned }
-    val unpinnedNotes = notes.filter { !it.isPinned }
+    // filter() recorre la lista entera. Recordarlo evita recorrerla en cada recomposición
+    // disparada por cualquier estado no relacionado (focus del search, sheet, etc).
+    val pinnedNotes = remember(notes) { notes.filter { it.isPinned } }
+    val unpinnedNotes = remember(notes) { notes.filter { !it.isPinned } }
 
     val gridState = rememberLazyStaggeredGridState()
     val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
@@ -197,6 +202,15 @@ fun HistoryScreen(
     val swipeState = remember { MagneticSwipeState() }
     val orderedNoteIds = remember(pinnedNotes, unpinnedNotes) {
         pinnedNotes.map { it.id } + unpinnedNotes.map { it.id }
+    }
+
+    // Lista estática de opciones de sort. Recordarla evita alocar 3 Pairs en cada frame.
+    val sortOptions = remember {
+        listOf(
+            Icons.Default.AccessTime to "Newest",
+            Icons.Default.History to "Oldest",
+            Icons.AutoMirrored.Filled.Sort to "A–Z"
+        )
     }
 
     val currentVersion = remember {
@@ -323,11 +337,6 @@ fun HistoryScreen(
                     Spacer(Modifier.height(24.dp))
                     Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
 
-                    val sortOptions = listOf(
-                        Icons.Default.AccessTime to "Newest",
-                        Icons.Default.History to "Oldest",
-                        Icons.AutoMirrored.Filled.Sort to "A–Z"
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
@@ -529,7 +538,7 @@ fun HistoryScreen(
                                     },
                                     onShare = {
                                         val noteId = selectedNotes.firstOrNull()
-                                        val noteToShare = noteId?.let { id -> notes.find { it.id == id } }
+                                        val noteToShare = noteId?.let { id -> notesById[id] }
                                         if (noteToShare != null) {
                                             coroutineScope.launch {
                                                 snackbarHostState.showSnackbar("Generating .binot file...")

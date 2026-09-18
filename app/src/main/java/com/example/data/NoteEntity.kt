@@ -1,5 +1,6 @@
 package com.example.data
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -21,6 +22,7 @@ import androidx.room.PrimaryKey
         Index(value = ["title"], name = "index_notes_title")
     ]
 )
+@Immutable
 data class NoteEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val title: String,

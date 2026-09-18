@@ -678,7 +678,9 @@ fun ResultScreen(
                                     ) {
                                         if (isTitleFocused) focusManager.clearFocus()
                                     }) {
-                                        val cleanSummary = note!!.summary!!.replace(Regex("<!--BINOT_META:.*?-->"), "").trimEnd()
+                                        val cleanSummary = remember(note!!.summary) {
+                                            note!!.summary!!.replace(Regex("<!--BINOT_META:.*?-->"), "").trimEnd()
+                                        }
                                         MarkdownText(
                                             text = cleanSummary,
                                             scrollState = markdownScrollState,
@@ -1283,13 +1285,22 @@ fun ResultScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                val cleanSummaryForSearch = note!!.summary?.replace(Regex("<!--BINOT_META:.*?-->"), "")?.trimEnd()
+                // Estos tres cálculos antes se repetían en CADA recomposición del panel
+                // (que se dispara con cada tecla en el campo de búsqueda y con cada
+                // cambio de cualquier estado cercano). Ahora están memorizados por sus
+                // dependencias reales: el summary de la nota y el query del usuario.
+                val cleanSummaryForSearch = remember(note!!.summary) {
+                    note!!.summary?.replace(Regex("<!--BINOT_META:.*?-->"), "")?.trimEnd()
+                }
                 val textToSearch = cleanSummaryForSearch ?: note!!.rawText
-                val lines = textToSearch.split("\n")
-                val searchResults = lines.mapIndexedNotNull { index, line ->
-                    if (searchHighlightQuery.isNotBlank() && line.contains(searchHighlightQuery, ignoreCase = true)) {
-                        index to line.trim()
-                    } else null
+                val lines = remember(textToSearch) { textToSearch.split("\n") }
+                val searchResults = remember(lines, searchHighlightQuery) {
+                    if (searchHighlightQuery.isBlank()) emptyList()
+                    else lines.mapIndexedNotNull { index, line ->
+                        if (line.contains(searchHighlightQuery, ignoreCase = true)) {
+                            index to line.trim()
+                        } else null
+                    }
                 }
 
                 if (searchHighlightQuery.isNotBlank() && searchResults.isNotEmpty()) {
