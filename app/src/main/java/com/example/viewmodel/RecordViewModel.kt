@@ -63,30 +63,23 @@ class RecordViewModel(
 
     private var pendingAudioPath: String? = null
 
-    private val _recentNotes = MutableStateFlow<List<NoteEntity>>(emptyList())
-    val recentNotes: StateFlow<List<NoteEntity>> = _recentNotes.asStateFlow()
-    private var pollJob: Job? = null
-
-    init {
-        startPollingRecentNotes()
-    }
-
-    private fun startPollingRecentNotes() {
-        pollJob?.cancel()
-        pollJob = viewModelScope.launch(Dispatchers.IO) {
-            while (true) {
-                try {
-                    val notes = repository.getAllNotesSync()
-                    val realNotes = notes.filterNot { it.title == "[[BINOT_SYSTEM_LABELS]]" }
-                    val latest16 = realNotes.sortedByDescending { it.timestamp }.take(16)
-                    _recentNotes.value = latest16
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-                delay(1500)
-            }
-        }
-    }
+    /**
+     * Notas recientes para el carrusel de RecordScreen.
+     *
+     * Antes: polling cada 1.5s con getAllNotesSync(). Eso corría un full table
+     * scan continuo en gama baja y mantenía la DB caliente aunque la pantalla
+     * no estuviera visible.
+     *
+     * Ahora: Flow reactivo directo de Room. Cuando la tabla cambia (insert/update/
+     * delete), Room re-emite y `stateIn` propaga. Cuando no hay subscribers activos
+     * por más de 5s, el upstream se cancela solo — cero CPU en background.
+     */
+    val recentNotes: StateFlow<List<NoteEntity>> = repository.getRecentNotes(16)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     fun toggleRecording(isEmulator: Boolean, recordMode: Int) {
         if (isRecording.value) {
@@ -275,7 +268,6 @@ class RecordViewModel(
         super.onCleared()
         audioRecorderManager.stopRecording()
         stopTimer()
-        pollJob?.cancel()
         _isPaused.value = false
         RecordingService.stop(appContext)
     }
