@@ -123,7 +123,8 @@ class RecordingService : Service() {
                     break
                 }
                 elapsedSeconds += 1
-                updateNotification(elapsedSeconds)
+                // El cronómetro de la notificación corre solo; refrescamos rara vez.
+                if (elapsedSeconds % 30 == 0) updateNotification(elapsedSeconds)
             }
         }
     }
@@ -149,7 +150,7 @@ class RecordingService : Service() {
                     "Background Recording",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "Muestra el progreso mientras Obinot graba con la pantalla apagada o la app en segundo plano."
+                    description = "Shows recording progress while Obinot records with the screen off or the app in the background."
                     setShowBadge(false)
                 }
                 manager.createNotificationChannel(channel)
@@ -168,14 +169,23 @@ class RecordingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Visual: cronómetro nativo del sistema (se actualiza solo, sin parpadeo),
+        // acento con el color de la app y subtexto en vez de texto plano.
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("Grabando en segundo plano")
-            .setContentText("Obinot sigue grabando · ${formatTime(seconds)} transcurrido")
+            .setContentTitle("Recording")
+            .setContentText("Tap to return to Obinot")
+            .setSubText("Obinot")
             .setSmallIcon(R.drawable.ic_recording_notification)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setShowWhen(true)
+            .setWhen(System.currentTimeMillis() - seconds * 1000L)
+            .setUsesChronometer(true)
+            .setColorized(true)
+            .setColor(0xFFB3261E.toInt())
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()

@@ -592,8 +592,19 @@ class ResultViewModel(
                 var transcript: String? = null
                 var fileToUpload = originalFile
 
+                // FIX: antes, en Mix cualquier archivo > 20 MB se mandaba directo a Gemini,
+                // así que la compresión NUNCA se ejecutaba en Mix. Ahora, si Auto Compression
+                // está activa y el bitrate necesario es aceptable, Mix se queda en Groq y
+                // comprime; solo cae a Gemini si comprimir arruinaría el audio o falla.
+                val compressionModeForRouting = settingsRepository.autoCompressionModeFlow.first()
                 var effectiveProvider: Int = if (provider == 2) {
-                    if (originalFile.length() > 20 * 1024 * 1024) 0 else 1
+                    val fits = originalFile.length() <= 20 * 1024 * 1024
+                    val compressible = compressionModeForRouting > 0 &&
+                        AudioCompressor.calculateTargetBitrate(
+                            getAudioDurationMs(originalFile),
+                            if (compressionModeForRouting == 1) 24.0 else 15.0
+                        ) != null
+                    if (fits || compressible) 1 else 0
                 } else provider
 
                 if (effectiveProvider == 1 && originalFile.length() > 24 * 1024 * 1024) {

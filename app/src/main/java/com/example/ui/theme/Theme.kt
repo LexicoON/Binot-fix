@@ -72,41 +72,27 @@ fun BinotTheme(
     //   (DynamicMaterialExpressiveTheme de MaterialKolor 5.x ya no acepta colorScheme,
     //    solo seedColor, así que para wallpaper hay que usar el theme de material3).
     // - Si no → colores generados desde seed vía DynamicMaterialExpressiveTheme.
+    // FIX: antes, si el device soportaba wallpaper colors, se usaba MaterialExpressiveTheme
+    // con el esquema del sistema y el paletteStyle se ignoraba por completo (de ahí que los
+    // 5 estilos no hicieran nada). Ahora el wallpaper solo aporta el SEED, y la paleta
+    // siempre la genera MaterialKolor aplicando el estilo elegido.
     val useWallpaper = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    if (useWallpaper) {
-        val wallpaperColorScheme = if (isDark) {
-            dynamicDarkColorScheme(context)
-        } else {
-            dynamicLightColorScheme(context)
-        }
-
-        val finalColorScheme = if (isAmoled) {
-            wallpaperColorScheme.copy(
-                background = Color.Black,
-                surface = Color.Black
-            )
-        } else {
-            wallpaperColorScheme
-        }
-
-        MaterialExpressiveTheme(
-            colorScheme = finalColorScheme,
-            motionScheme = MotionScheme.expressive(),
-            shapes = ExpressiveShapes,
-            typography = Typography,
-            content = content
-        )
+    val seed = if (useWallpaper) {
+        // El primary del esquema del sistema es el color dominante del wallpaper.
+        dynamicLightColorScheme(context).primary
     } else {
-        DynamicMaterialExpressiveTheme(
-            seedColor = PrimaryPurple,
-            motionScheme = MotionScheme.expressive(),
-            isDark = isDark,
-            isAmoled = isAmoled,
-            style = paletteStyle,
-            shapes = ExpressiveShapes,
-            typography = Typography,
-            content = content
-        )
+        PrimaryPurple
     }
+
+    DynamicMaterialExpressiveTheme(
+        seedColor = seed,
+        motionScheme = MotionScheme.expressive(),
+        isDark = isDark,
+        isAmoled = isAmoled,
+        style = paletteStyle,
+        shapes = ExpressiveShapes,
+        typography = Typography,
+        content = content
+    )
 }

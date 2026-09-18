@@ -258,6 +258,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                     val groqApiKey by settingsViewModel.groqApiKey.collectAsState()
                     val recordMode by settingsViewModel.recordMode.collectAsState()
                     val aiProvider by settingsViewModel.aiProvider.collectAsState()
+                    val useNativePicker by settingsViewModel.nativePickerEnabled.collectAsState()
 
                     val recordViewModel: RecordViewModel = viewModel(
                         factory = RecordViewModel.provideFactory(
@@ -278,7 +279,8 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         animatedVisibilityScope = this@composable,
                         sharedTransitionScope = this@SharedTransitionLayout,
                         onNoteClick = { id -> navController.navigate("result/$id") },
-                        onImportFile = { uri -> ImportExportHelper.importFile(context, uri, appContainer.noteRepository) }
+                        onImportFile = { uri -> ImportExportHelper.importFile(context, uri, appContainer.noteRepository) },
+                        useNativePicker = useNativePicker
                     )
                 }
                 composable("history") {

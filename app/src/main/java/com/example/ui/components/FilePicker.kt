@@ -35,7 +35,8 @@ data class AudioFileInfo(
     val name: String,
     val durationMs: Long,
     val sizeBytes: Long,
-    val mimeType: String
+    val mimeType: String,
+    val dateModified: Long = 0L
 ) {
     val durationFormatted: String
         get() {
@@ -59,14 +60,14 @@ data class AudioFileInfo(
  * Opciones de ordenamiento disponibles.
  */
 enum class AudioSortOrder(val label: String) {
-    DATE_MODIFIED_DESC("Más reciente"),
-    DATE_MODIFIED_ASC("Más antiguo"),
-    NAME_ASC("Nombre (A-Z)"),
-    NAME_DESC("Nombre (Z-A)"),
-    DURATION_DESC("Más largo"),
-    DURATION_ASC("Más corto"),
-    SIZE_DESC("Más pesado"),
-    SIZE_ASC("Más liviano")
+    DATE_MODIFIED_DESC("Newest"),
+    DATE_MODIFIED_ASC("Oldest"),
+    NAME_ASC("Name (A-Z)"),
+    NAME_DESC("Name (Z-A)"),
+    DURATION_DESC("Longest"),
+    DURATION_ASC("Shortest"),
+    SIZE_DESC("Largest"),
+    SIZE_ASC("Smallest")
 }
 
 /**
@@ -84,17 +85,43 @@ fun AudioFilePickerSheet(
     var isLoading by remember { mutableStateOf(true) }
     var sortOrder by remember { mutableStateOf(AudioSortOrder.DATE_MODIFIED_DESC) }
 
+    // FIX: sin este permiso el cursor de MediaStore vuelve vacío y la hoja
+    // se veía siempre como "no hay archivos de audio".
+    val audioPermission = if (android.os.Build.VERSION.SDK_INT >= 33) {
+        android.Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        android.Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    var hasPermission by remember {
+        mutableStateOf(
+            androidx.core.content.ContextCompat.checkSelfPermission(context, audioPermission) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> hasPermission = granted }
+
     LaunchedEffect(Unit) {
-        audioFiles = withContext(Dispatchers.IO) {
-            queryAudioFiles(context, AudioSortOrder.DATE_MODIFIED_DESC)
+        if (!hasPermission) permissionLauncher.launch(audioPermission)
+    }
+
+    LaunchedEffect(hasPermission) {
+        if (hasPermission) {
+            isLoading = true
+            audioFiles = withContext(Dispatchers.IO) { queryAudioFiles(context) }
+            isLoading = false
+        } else {
+            isLoading = false
         }
-        isLoading = false
     }
 
     val sortedFiles = remember(audioFiles, sortOrder) {
         when (sortOrder) {
-            AudioSortOrder.DATE_MODIFIED_DESC -> audioFiles.sortedByDescending { it.name }
-            AudioSortOrder.DATE_MODIFIED_ASC -> audioFiles.sortedBy { it.name }
+            AudioSortOrder.DATE_MODIFIED_DESC -> audioFiles.sortedByDescending { it.dateModified }
+            AudioSortOrder.DATE_MODIFIED_ASC -> audioFiles.sortedBy { it.dateModified }
             AudioSortOrder.NAME_ASC -> audioFiles.sortedBy { it.name.lowercase() }
             AudioSortOrder.NAME_DESC -> audioFiles.sortedByDescending { it.name.lowercase() }
             AudioSortOrder.DURATION_DESC -> audioFiles.sortedByDescending { it.durationMs }
@@ -126,14 +153,14 @@ fun AudioFilePickerSheet(
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = "Elegir audio",
+                    text = "Choose audio",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = { /* ciclo de sort orders */ }) {
-                    Icon(Icons.Default.Sort, contentDescription = "Ordenar")
+                    Icon(Icons.Default.Sort, contentDescription = "Sort")
                 }
             }
 
@@ -156,11 +183,25 @@ fun AudioFilePickerSheet(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No se encontraron archivos de audio.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (!hasPermission) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Obinot needs permission to read audio files on this device.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedButton(onClick = { permissionLauncher.launch(audioPermission) }) {
+                                Text("Grant access")
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "No audio files found.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
@@ -271,8 +312,7 @@ private fun AudioFileRow(
  * Devuelve solo metadatos, no lee el contenido de los archivos.
  */
 private fun queryAudioFiles(
-    context: Context,
-    sortOrder: AudioSortOrder
+    context: Context
 ): List<AudioFileInfo> {
     val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
     val projection = arrayOf(
@@ -280,19 +320,14 @@ private fun queryAudioFiles(
         MediaStore.Audio.Media.DISPLAY_NAME,
         MediaStore.Audio.Media.DURATION,
         MediaStore.Audio.Media.SIZE,
-        MediaStore.Audio.Media.MIME_TYPE
+        MediaStore.Audio.Media.MIME_TYPE,
+        MediaStore.Audio.Media.DATE_MODIFIED
     )
-    val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.IS_PODCAST} != 0"
-    val sort = when (sortOrder) {
-        AudioSortOrder.DATE_MODIFIED_DESC -> "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
-        AudioSortOrder.DATE_MODIFIED_ASC -> "${MediaStore.Audio.Media.DATE_MODIFIED} ASC"
-        AudioSortOrder.NAME_ASC -> "${MediaStore.Audio.Media.DISPLAY_NAME} ASC"
-        AudioSortOrder.NAME_DESC -> "${MediaStore.Audio.Media.DISPLAY_NAME} DESC"
-        AudioSortOrder.DURATION_DESC -> "${MediaStore.Audio.Media.DURATION} DESC"
-        AudioSortOrder.DURATION_ASC -> "${MediaStore.Audio.Media.DURATION} ASC"
-        AudioSortOrder.SIZE_DESC -> "${MediaStore.Audio.Media.SIZE} DESC"
-        AudioSortOrder.SIZE_ASC -> "${MediaStore.Audio.Media.SIZE} ASC"
-    }
+    // FIX: el filtro IS_MUSIC/IS_PODCAST dejaba fuera justamente lo que la gente quiere
+    // importar (notas de voz, audios de WhatsApp, grabaciones). Ahora se listan todos
+    // los audios y el orden se aplica en memoria, no en SQL.
+    val selection: String? = null
+    val sort = "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
 
     val result = mutableListOf<AudioFileInfo>()
     context.contentResolver.query(collection, projection, selection, null, sort)?.use { cursor ->
@@ -301,6 +336,7 @@ private fun queryAudioFiles(
         val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
         val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
         val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+        val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
 
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idCol)
@@ -308,10 +344,11 @@ private fun queryAudioFiles(
             result.add(
                 AudioFileInfo(
                     uri = uri,
-                    name = cursor.getString(nameCol) ?: "Sin nombre",
+                    name = cursor.getString(nameCol) ?: "Unnamed",
                     durationMs = cursor.getLong(durationCol),
                     sizeBytes = cursor.getLong(sizeCol),
-                    mimeType = cursor.getString(mimeCol) ?: "audio/*"
+                    mimeType = cursor.getString(mimeCol) ?: "audio/*",
+                    dateModified = cursor.getLong(dateCol)
                 )
             )
         }

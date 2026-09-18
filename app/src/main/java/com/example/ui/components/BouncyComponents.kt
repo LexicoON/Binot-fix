@@ -56,11 +56,17 @@ fun Modifier.bouncyClickable(
                         0.94f,
                         spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            stiffness = 1800f
                         )
                     )
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
+                    // animateTo del press se cancela antes de ser visible. Si el scale
+                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
+                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
+                    // se perdió al centralizar los componentes).
+                    if (scale.value > 0.96f) scale.snapTo(0.93f)
                     scale.animateTo(
                         1f,
                         spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
@@ -102,11 +108,17 @@ fun BouncyButton(
                         0.94f,
                         spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            stiffness = 1800f
                         )
                     )
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
+                    // animateTo del press se cancela antes de ser visible. Si el scale
+                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
+                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
+                    // se perdió al centralizar los componentes).
+                    if (scale.value > 0.96f) scale.snapTo(0.93f)
                     scale.animateTo(
                         1f,
                         spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
@@ -148,11 +160,17 @@ fun BouncyOutlinedButton(
                         0.96f,
                         spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            stiffness = 1800f
                         )
                     )
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
+                    // animateTo del press se cancela antes de ser visible. Si el scale
+                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
+                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
+                    // se perdió al centralizar los componentes).
+                    if (scale.value > 0.96f) scale.snapTo(0.93f)
                     scale.animateTo(
                         1f,
                         spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
@@ -193,11 +211,17 @@ fun BouncyIconButton(
                         0.88f,
                         spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            stiffness = 1800f
                         )
                     )
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
+                    // animateTo del press se cancela antes de ser visible. Si el scale
+                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
+                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
+                    // se perdió al centralizar los componentes).
+                    if (scale.value > 0.96f) scale.snapTo(0.93f)
                     scale.animateTo(
                         1f,
                         spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
@@ -237,11 +261,17 @@ fun BouncyCapsule(
                         0.94f,
                         spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            stiffness = 1800f
                         )
                     )
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
+                    // animateTo del press se cancela antes de ser visible. Si el scale
+                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
+                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
+                    // se perdió al centralizar los componentes).
+                    if (scale.value > 0.96f) scale.snapTo(0.93f)
                     scale.animateTo(
                         1f,
                         spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
@@ -289,11 +319,17 @@ fun BouncyChip(
                         0.94f,
                         spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            stiffness = 1800f
                         )
                     )
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
+                    // animateTo del press se cancela antes de ser visible. Si el scale
+                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
+                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
+                    // se perdió al centralizar los componentes).
+                    if (scale.value > 0.96f) scale.snapTo(0.93f)
                     scale.animateTo(
                         1f,
                         spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)

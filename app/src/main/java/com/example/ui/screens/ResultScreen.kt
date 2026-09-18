@@ -126,6 +126,7 @@ import com.example.ui.components.BouncyCapsule
 import com.example.ui.components.BouncyChip
 import com.example.ui.components.BouncyIconButton
 import com.example.ui.components.MarkdownText
+import com.example.ui.theme.resolveLabelColors
 import com.example.utils.AudioRecorderManager
 import com.example.viewmodel.ResultViewModel
 import kotlinx.coroutines.delay
@@ -1238,17 +1239,7 @@ fun ResultScreen(
                         val isSelected = activeLabels.contains(label)
                         val assignedHex = labelColors[label]
 
-                        val chipColor = when {
-                            isSelected -> MaterialTheme.colorScheme.primary
-                            assignedHex != null -> try { Color(AndroidColor.parseColor(assignedHex)) }
-                            catch (e: Exception) { MaterialTheme.colorScheme.surfaceVariant }
-                            else -> MaterialTheme.colorScheme.surfaceVariant
-                        }
-                        val chipTextColor = when {
-                            isSelected -> MaterialTheme.colorScheme.onPrimary
-                            assignedHex != null -> if (chipColor.luminance() > 0.5f) Color(0xFF1A1A1A) else Color.White
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        val (chipColor, chipTextColor) = resolveLabelColors(assignedHex, isSelected)
 
                         BouncyChip(
                             onClick = { viewModel.toggleLabel(label) },

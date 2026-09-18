@@ -149,60 +149,121 @@ object AudioCompressor {
                 MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
             )
 
-            val bufferInfo = MediaCodec.BufferInfo()
+            // FIX: antes decoder y encoder compartían un mismo BufferInfo y, sobre todo,
+            // el bucle que alimentaba PCM al encoder giraba en vacío sin drenar la salida
+            // del encoder. En audios largos eso se traba para siempre (de ahí que la
+            // compresión "tardara" y nunca devolviera nada). Ahora hay un BufferInfo por
+            // etapa y el drenaje del encoder se ejecuta también mientras se espera un
+            // buffer de entrada libre.
+            val decoderInfo = MediaCodec.BufferInfo()
+            val encoderInfo = MediaCodec.BufferInfo()
             var muxerStarted = false
             var outputTrackIndex = -1
             var inputDone = false
             var decoderDone = false
             var encoderDone = false
 
+            /** Drena UNA salida del encoder hacia el muxer. Devuelve true si consumió algo. */
+            fun drainEncoderOnce(timeoutUs: Long): Boolean {
+                val encIndex = encoder.dequeueOutputBuffer(encoderInfo, timeoutUs)
+                when {
+                    encIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        if (!muxerStarted) {
+                            outputTrackIndex = muxer.addTrack(encoder.outputFormat)
+                            muxer.start()
+                            muxerStarted = true
+                        }
+                        return true
+                    }
+                    encIndex >= 0 -> {
+                        val encodedData = encoder.getOutputBuffer(encIndex)
+                        if ((encoderInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                            encoderInfo.size = 0
+                        }
+                        if (encodedData != null && encoderInfo.size > 0 && muxerStarted) {
+                            encodedData.position(encoderInfo.offset)
+                            encodedData.limit(encoderInfo.offset + encoderInfo.size)
+                            muxer.writeSampleData(outputTrackIndex, encodedData, encoderInfo)
+                        }
+                        encoder.releaseOutputBuffer(encIndex, false)
+                        if ((encoderInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                            encoderDone = true
+                        }
+                        return true
+                    }
+                }
+                return false
+            }
+
+            val deadline = System.currentTimeMillis() + 10 * 60 * 1000L // tope de seguridad
+
             while (!encoderDone) {
-                // 1. Alimentar decoder desde el extractor
+                if (System.currentTimeMillis() > deadline) {
+                    return@withContext Result.Failure("Compression timed out")
+                }
+
+                // 1. Extractor -> decoder
                 if (!inputDone) {
                     val inIndex = decoder.dequeueInputBuffer(10_000)
                     if (inIndex >= 0) {
                         val buffer = decoder.getInputBuffer(inIndex)!!
                         val sampleSize = extractor.readSampleData(buffer, 0)
                         if (sampleSize < 0) {
-                            decoder.queueInputBuffer(
-                                inIndex, 0, 0, 0,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                            )
+                            decoder.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
                         } else {
-                            decoder.queueInputBuffer(
-                                inIndex, 0, sampleSize,
-                                extractor.sampleTime, 0
-                            )
+                            decoder.queueInputBuffer(inIndex, 0, sampleSize, extractor.sampleTime, 0)
                             extractor.advance()
                         }
                     }
                 }
 
-                // 2. Drenar decoder → alimentar encoder
+                // 2. Decoder -> encoder
                 if (!decoderDone) {
-                    val decIndex = decoder.dequeueOutputBuffer(bufferInfo, 10_000)
+                    val decIndex = decoder.dequeueOutputBuffer(decoderInfo, 10_000)
                     if (decIndex >= 0) {
                         val pcmBuffer = decoder.getOutputBuffer(decIndex)
-                        val isEos = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+                        val isEos = (decoderInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
 
-                        if (pcmBuffer != null && bufferInfo.size > 0) {
-                            // Enviar PCM al encoder
+                        if (pcmBuffer != null && decoderInfo.size > 0) {
                             var pcmFed = false
                             while (!pcmFed) {
-                                val encIndex = encoder.dequeueInputBuffer(10_000)
-                                if (encIndex >= 0) {
-                                    val encBuffer = encoder.getInputBuffer(encIndex)!!
+                                if (System.currentTimeMillis() > deadline) {
+                                    return@withContext Result.Failure("Compression timed out")
+                                }
+                                val encInIndex = encoder.dequeueInputBuffer(10_000)
+                                if (encInIndex >= 0) {
+                                    val encBuffer = encoder.getInputBuffer(encInIndex)!!
                                     encBuffer.clear()
-                                    pcmBuffer.position(bufferInfo.offset)
-                                    pcmBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                                    pcmBuffer.position(decoderInfo.offset)
+                                    pcmBuffer.limit(decoderInfo.offset + decoderInfo.size)
                                     encBuffer.put(pcmBuffer)
                                     encoder.queueInputBuffer(
-                                        encIndex, 0, bufferInfo.size,
-                                        bufferInfo.presentationTimeUs,
+                                        encInIndex, 0, decoderInfo.size,
+                                        decoderInfo.presentationTimeUs,
                                         if (isEos) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
                                     )
                                     pcmFed = true
+                                } else {
+                                    // Clave: si no hay input libre es porque la salida
+                                    // está llena. Drenarla desatasca el pipeline.
+                                    drainEncoderOnce(0)
+                                }
+                            }
+                        } else if (isEos) {
+                            // EOS sin datos: señalizar fin al encoder igualmente.
+                            var signalled = false
+                            while (!signalled) {
+                                val encInIndex = encoder.dequeueInputBuffer(10_000)
+                                if (encInIndex >= 0) {
+                                    encoder.queueInputBuffer(
+                                        encInIndex, 0, 0,
+                                        decoderInfo.presentationTimeUs,
+                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                    )
+                                    signalled = true
+                                } else {
+                                    drainEncoderOnce(0)
                                 }
                             }
                         }
@@ -212,41 +273,8 @@ object AudioCompressor {
                     }
                 }
 
-                // 3. Drenar encoder → muxer
-                val encIndex = encoder.dequeueOutputBuffer(bufferInfo, 10_000)
-                when {
-                    encIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        if (muxerStarted) {
-                            return@withContext Result.Failure("Encoder format changed after muxer started")
-                        }
-                        val newFormat = encoder.outputFormat
-                        outputTrackIndex = muxer.addTrack(newFormat)
-                        muxer.start()
-                        muxerStarted = true
-                    }
-
-                    encIndex >= 0 -> {
-                        val encodedData: ByteBuffer = encoder.getOutputBuffer(encIndex)!!
-                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-                            // Config frame: el muxer ya la tiene vía addTrack
-                            bufferInfo.size = 0
-                        }
-
-                        if (bufferInfo.size > 0 && muxerStarted) {
-                            encodedData.position(bufferInfo.offset)
-                            encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                            muxer.writeSampleData(outputTrackIndex, encodedData, bufferInfo)
-                        }
-
-                        encoder.releaseOutputBuffer(encIndex, false)
-
-                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                            encoderDone = true
-                        }
-                    }
-                }
-
-                if (encoderDone) break
+                // 3. Encoder -> muxer
+                drainEncoderOnce(10_000)
             }
 
             Result.Success(

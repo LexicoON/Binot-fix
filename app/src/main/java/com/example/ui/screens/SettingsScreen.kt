@@ -171,6 +171,7 @@ fun SettingsScreen(
     val aiProvider by viewModel.aiProvider.collectAsState()
     val backgroundRecordingEnabled by viewModel.backgroundRecordingEnabled.collectAsState()
     val autoCompressionMode by viewModel.autoCompressionMode.collectAsState()
+    val nativePickerEnabled by viewModel.nativePickerEnabled.collectAsState()
     val colorStyle by viewModel.colorStyle.collectAsState()
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -877,6 +878,46 @@ fun SettingsScreen(
                                         )
                                     }
                                 } else null
+                            )
+                        }
+                    }
+                }
+
+                // ---------- Native Audio Picker (beta) ----------
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Native Audio Picker", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.tertiaryContainer
+                                    ) {
+                                        Text(
+                                            "BETA",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Use Obinot's own audio browser (with duration, size and sorting) instead of the system file picker. Requires permission to read audio on this device.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Switch(
+                                checked = nativePickerEnabled,
+                                onCheckedChange = { viewModel.saveNativePicker(it) }
                             )
                         }
                     }

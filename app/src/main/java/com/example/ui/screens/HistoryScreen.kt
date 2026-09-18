@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Menu
@@ -76,7 +77,8 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EditOutline
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -118,6 +120,9 @@ import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyIconButton
 import com.example.ui.components.MarkdownText
 import com.example.ui.components.bouncyClickable
+import com.example.ui.theme.isDynamicLabelColor
+import com.example.ui.theme.resolveLabelColors
+import com.example.ui.theme.resolveLabelDotColor
 import com.example.utils.ImportExportHelper
 import com.example.viewmodel.HistoryViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -372,9 +377,7 @@ fun HistoryScreen(
                     uniqueLabels.forEach { label ->
                         val isLabelSelected = label in selectedLabels
                         val assignedHex = labelColors[label]
-                        val dotColor = assignedHex?.let { hex ->
-                            try { Color(AndroidColor.parseColor(hex)) } catch (e: Exception) { null }
-                        } ?: MaterialTheme.colorScheme.onSurfaceVariant
+                        val dotColor = resolveLabelDotColor(assignedHex)
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -416,8 +419,29 @@ fun HistoryScreen(
                             Text(
                                 label,
                                 color = if (isLabelSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.labelLarge
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
                             )
+                            // FIX: el editor de label/color estaba escondido detrás de un
+                            // long-press invisible. Ahora hay un botón explícito.
+                            if (!isMultiSelectLabelMode) {
+                                BouncyIconButton(
+                                    onClick = {
+                                        labelBeingManaged = label
+                                        renameLabelInput = label
+                                        renameLabelColor = assignedHex ?: LabelEntity.DEFAULT_COLOR
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "Edit label and color",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -1059,8 +1083,15 @@ private fun LabelColorPicker(
         contentPadding = PaddingValues(vertical = 4.dp)
     ) {
         items(LabelEntity.FULL_PALETTE) { hex ->
-            val color = try { Color(AndroidColor.parseColor(hex)) } catch (e: Exception) { Color.Gray }
-            val isSelected = selectedHex.equals(hex, ignoreCase = true)
+            // El primer swatch es "Dynamic": toma el color del tema del teléfono.
+            val dynamic = isDynamicLabelColor(hex)
+            val color = if (dynamic) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                try { Color(AndroidColor.parseColor(hex)) } catch (e: Exception) { Color.Gray }
+            }
+            val isSelected = if (dynamic) isDynamicLabelColor(selectedHex)
+                             else selectedHex.equals(hex, ignoreCase = true)
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -1371,6 +1402,7 @@ fun NoteCard(
                     cardScale.animateTo(0.97f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium))
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    if (cardScale.value > 0.96f) cardScale.snapTo(0.93f)
                     cardScale.animateTo(1f, spring(0.40f, Spring.StiffnessMediumLow))
                 }
             }
@@ -1406,20 +1438,7 @@ fun NoteCard(
                         val isLabelActive = label in selectedLabels
                         val assignedHex = labelColors[label]
 
-                        val chipColor = if (isLabelActive) {
-                            MaterialTheme.colorScheme.primary
-                        } else if (assignedHex != null) {
-                            try { Color(AndroidColor.parseColor(assignedHex)) }
-                            catch (e: Exception) { MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f) }
-                        } else {
-                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f)
-                        }
-
-                        val chipContentColor = when {
-                            isLabelActive -> MaterialTheme.colorScheme.onPrimary
-                            assignedHex != null -> if (chipColor.luminance() > 0.5f) Color(0xFF1A1A1A) else Color.White
-                            else -> MaterialTheme.colorScheme.onSecondaryContainer
-                        }
+                        val (chipColor, chipContentColor) = resolveLabelColors(assignedHex, isLabelActive)
 
                         Box(
                             modifier = Modifier

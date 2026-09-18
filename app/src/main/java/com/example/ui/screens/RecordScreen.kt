@@ -74,7 +74,8 @@ fun RecordScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     sharedTransitionScope: SharedTransitionScope,
     onNoteClick: (Int) -> Unit,
-    onImportFile: suspend (Uri) -> Int? = { null }
+    onImportFile: suspend (Uri) -> Int? = { null },
+    useNativePicker: Boolean = false
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -151,10 +152,13 @@ fun RecordScreen(
     val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
 
-    val displayLiveText = if (recordMode == 1) {
-        "Live transcription is disabled in Accurate mode."
-    } else {
-        if (recognizedText.isEmpty()) "Waiting for voice input..." else recognizedText
+    // FIX: el AudioRecorderManager YA corre el SpeechRecognizer también en Accurate (mode 1),
+    // pero esta pantalla seguía mostrando el cartel de "disabled" y tapaba el resultado.
+    // Ahora la transcripción en vivo se muestra en ambos modos.
+    val displayLiveText = when {
+        recognizedText.isNotEmpty() -> recognizedText
+        recordMode == 1 -> "Listening... (audio is being saved for AI analysis)"
+        else -> "Waiting for voice input..."
     }
 
     val scrollState = rememberScrollState()
@@ -721,7 +725,29 @@ fun RecordScreen(
     }
 
     // Audio picker
-    if (showAudioPicker) {
+    // SAF fallback: se usa cuando el picker nativo (beta) está apagado.
+    val safAudioLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            isImporting = true
+            coroutineScope.launch {
+                val newId = onImportFile(uri)
+                isImporting = false
+                if (newId != null) onNoteClick(newId)
+                else snackbarHostState.showSnackbar("Failed to import audio file.")
+            }
+        }
+    }
+
+    LaunchedEffect(showAudioPicker) {
+        if (showAudioPicker && !useNativePicker) {
+            showAudioPicker = false
+            safAudioLauncher.launch(arrayOf("audio/*"))
+        }
+    }
+
+    if (showAudioPicker && useNativePicker) {
         AudioFilePickerSheet(
             onDismiss = { showAudioPicker = false },
             onFileSelected = { uri ->

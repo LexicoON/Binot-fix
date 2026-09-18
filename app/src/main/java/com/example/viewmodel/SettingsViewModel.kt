@@ -122,6 +122,12 @@ class SettingsViewModel(
         initialValue = 0
     )
 
+    val nativePickerEnabled: StateFlow<Boolean> = settingsRepository.nativePickerFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+
     private val _updateState = MutableStateFlow(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 
@@ -180,6 +186,10 @@ class SettingsViewModel(
 
     fun saveAutoCompressionMode(mode: Int) {
         viewModelScope.launch { settingsRepository.saveAutoCompressionMode(mode) }
+    }
+
+    fun saveNativePicker(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.saveNativePicker(enabled) }
     }
 
     fun saveColorStyle(style: Int) {

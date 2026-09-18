@@ -32,6 +32,9 @@ class SettingsRepository(private val context: Context) {
         // --- MIX COUNTER ---
         val MIX_COUNTER_KEY = intPreferencesKey("mix_counter")
 
+        // --- NATIVE AUDIO PICKER (beta) ---
+        val NATIVE_PICKER_KEY = booleanPreferencesKey("native_audio_picker_enabled")
+
         // --- COLOR STYLE ---
         // 0 = Tonal Spot, 1 = Vibrant, 2 = Expressive, 3 = Rainbow, 4 = Neutral
         val COLOR_STYLE_KEY = intPreferencesKey("color_style")
@@ -52,6 +55,8 @@ class SettingsRepository(private val context: Context) {
     val autoCompressionModeFlow: Flow<Int> = context.dataStore.data.map { it[AUTO_COMPRESSION_MODE_KEY] ?: 1 }
     val mixCounterFlow: Flow<Int> = context.dataStore.data.map { it[MIX_COUNTER_KEY] ?: 0 }
     val colorStyleFlow: Flow<Int> = context.dataStore.data.map { it[COLOR_STYLE_KEY] ?: 0 }
+    // Default OFF: el picker nativo es beta y se opta explícitamente.
+    val nativePickerFlow: Flow<Boolean> = context.dataStore.data.map { it[NATIVE_PICKER_KEY] ?: false }
 
     suspend fun saveUserName(name: String) {
         context.dataStore.edit { it[USER_NAME_KEY] = name }
@@ -95,6 +100,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveAutoCompressionMode(mode: Int) {
         context.dataStore.edit { it[AUTO_COMPRESSION_MODE_KEY] = mode.coerceIn(0, 2) }
+    }
+
+    suspend fun saveNativePicker(enabled: Boolean) {
+        context.dataStore.edit { it[NATIVE_PICKER_KEY] = enabled }
     }
 
     suspend fun saveColorStyle(style: Int) {
