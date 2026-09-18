@@ -11,7 +11,6 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -173,12 +172,6 @@ object AudioCompressor {
             }
         }
 
-        fun abort(reason: String): Result.Failure {
-            failureReason = reason
-            compressorFailed.set(true)
-            return Result.Failure(reason)
-        }
-
         try {
             extractor = MediaExtractor().apply {
                 setDataSource(inputFile.absolutePath)
@@ -221,8 +214,6 @@ object AudioCompressor {
 
             // --- Decoder: AAC → PCM ---
             // Los callbacks se configuran ANTES de configure() en async mode.
-            val decoderInputIndex = AtomicLong(-1L)
-
             decoder = MediaCodec.createDecoderByType(inputMime).apply {
                 setCallback(object : MediaCodec.Callback() {
                     override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
@@ -350,15 +341,26 @@ object AudioCompressor {
                         }
 
                         try {
+                            // Fallback defensivo: si el decoder terminó, la cola
+                            // está vacía y ya pasó suficiente tiempo, señalizar EOS
+                            // directamente. Cubre decoders que no propagan la marca
+                            // en su último buffer de salida, dejando el encoder
+                            // esperando chunks que nunca llegan (cuelgue al 99%).
+                            if (inputDone.get() && decoderDone.get() && pcmQueue.isEmpty()) {
+                                codec.queueInputBuffer(
+                                    index, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                )
+                                return
+                            }
+
                             // Tomar el siguiente chunk PCM. Poll con timeout para
                             // no bloquear el hilo del encoder indefinidamente.
                             val chunk = pcmQueue.poll(DRAIN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
                             if (chunk == null) {
-                                // No hay PCM listo. Devolver el buffer al encoder
-                                // sin datos; el sistema nos volverá a avisar.
-                                // Esto evita el deadlock cuando el decoder aún
-                                // no ha producido el primer buffer.
+                                // No hay PCM listo todavía. Devolver el buffer al
+                                // encoder sin datos; el sistema nos volverá a avisar.
                                 codec.queueInputBuffer(index, 0, 0, 0, 0)
                                 return
                             }
@@ -368,9 +370,15 @@ object AudioCompressor {
 
                             if (chunk.data != null) {
                                 buffer.put(chunk.data)
+                                // Propagar EOS si el chunk lo trae. Algunos decoders
+                                // marcan el último buffer PCM real con EOS + datos, no
+                                // como un buffer vacío separado. Sin esto, el encoder
+                                // nunca ve el fin de stream y la compresión se queda
+                                // colgada al 99%.
                                 codec.queueInputBuffer(
                                     index, 0, chunk.data.size,
-                                    chunk.presentationTimeUs, 0
+                                    chunk.presentationTimeUs,
+                                    if (chunk.isEos) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
                                 )
                             } else {
                                 // Chunk EOS sin datos: solo propagar la marca.
@@ -518,14 +526,12 @@ object AudioCompressor {
                 reportProgress()
 
                 // Si el decoder terminó pero el encoder sigue esperando chunks,
-                // no hacemos nada: el encoder irá consumiendo la cola.
-                // Solo esperamos un poco entre iteraciones.
+                // el fallback defensivo del callback de input del encoder le
+                // señaliza EOS automáticamente. Solo esperamos un poco entre iteraciones.
                 Thread.sleep(50)
             }
 
             // Drenar cualquier PCM que haya quedado en la cola antes de cerrar.
-            // Normalmente la cola ya está vacía porque el encoder procesó todo,
-            // pero por seguridad vaciamos.
             pcmQueue.clear()
 
             // Cerrar el muxer limpiamente.
