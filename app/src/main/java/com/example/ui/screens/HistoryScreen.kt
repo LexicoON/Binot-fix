@@ -48,7 +48,6 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -110,9 +109,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.LabelEntity
 import com.example.data.NoteEntity
 import com.example.ui.components.BouncyButton
@@ -132,9 +131,6 @@ import java.util.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-// ============================================================
-// Magnetic Swipe State
-// ============================================================
 @Stable
 class MagneticSwipeState {
     var activeId by mutableStateOf<Int?>(null)
@@ -240,12 +236,8 @@ fun HistoryScreen(
 
     var isDragHovering by remember { mutableStateOf(false) }
 
-    // Handler de drag & drop.
-    // El drag del sistema puede llegar por dos vías:
-    // 1. clipData con uno o más items (lo más común).
-    // 2. androidEvent.data con un único Uri (fallback en algunos file managers).
-    // Si ninguna trae datos, se libera el permiso y se retorna false para que el
-    // sistema no muestre la animación de "drop exitoso" en el vacío.
+    // Handler de drag & drop. Las URIs se obtienen exclusivamente del clipData,
+    // que es la única fuente que expone la API de DragEvent.
     val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
         object : DragAndDropTarget {
             override fun onStarted(event: DragAndDropEvent) {
@@ -260,17 +252,12 @@ fun HistoryScreen(
                 val androidEvent = event.toAndroidDragEvent()
                 val permission = activity?.requestDragAndDropPermissions(androidEvent)
 
-                // Recolectar URIs de las dos vías posibles.
                 val uris = mutableListOf<Uri>()
                 val clipData = androidEvent.clipData
                 if (clipData != null) {
                     for (i in 0 until clipData.itemCount) {
                         clipData.getItemAt(i).uri?.let { uris.add(it) }
                     }
-                }
-                // Fallback: algunos drag sources no llenan clipData pero sí data.
-                if (uris.isEmpty()) {
-                    androidEvent.data?.let { uris.add(it) }
                 }
 
                 if (uris.isEmpty()) {
@@ -678,9 +665,6 @@ fun HistoryScreen(
                     .padding(innerPadding)
                     .dragAndDropTarget(
                         shouldStartDragAndDrop = { event ->
-                            // Permisivo a propósito: los file managers reales no
-                            // siempre reportan los MIME types correctos para .binot,
-                            // y algunos envían lista vacía. Filtramos dentro de onDrop.
                             val types = event.mimeTypes()
                             types.isEmpty() ||
                             types.any { mimeType ->
@@ -1042,9 +1026,6 @@ fun HistoryScreen(
     }
 }
 
-// ============================================================
-// Selection menu
-// ============================================================
 @Composable
 private fun SelectionDropdownMenu(
     expanded: Boolean,
@@ -1091,9 +1072,6 @@ private fun SelectionDropdownMenu(
     }
 }
 
-// ============================================================
-// Label color picker
-// ============================================================
 @Composable
 private fun LabelColorPicker(
     selectedHex: String,
@@ -1139,9 +1117,6 @@ private fun LabelColorPicker(
     }
 }
 
-// ============================================================
-// DismissibleNoteCard con Magnetic Swipe
-// ============================================================
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun DismissibleNoteCard(
