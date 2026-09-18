@@ -284,6 +284,10 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                     )
                 }
                 composable("history") {
+                    // Faltaba declarar este estado: HistoryScreen recibe useNativePicker
+                    // para respetar el toggle de Settings igual que RecordScreen.
+                    val useNativePicker by settingsViewModel.nativePickerEnabled.collectAsState()
+
                     val historyViewModel: HistoryViewModel = viewModel(
                         factory = HistoryViewModel.provideFactory(
                             repository = appContainer.noteRepository,

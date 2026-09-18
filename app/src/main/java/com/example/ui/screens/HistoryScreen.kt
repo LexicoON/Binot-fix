@@ -77,8 +77,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.EditOutline
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -229,9 +228,8 @@ fun HistoryScreen(
         }
     }
 
-    // FIX: el FAB de History usaba siempre el picker de Android, sin importar el toggle
-    // "Native Audio Picker" de Settings. Ahora respeta el mismo interruptor que Record,
-    // y el picker unificado también sabe listar notas .binot (no solo audios).
+    // El FAB de History respeta el mismo toggle "Native Audio Picker" que Record.
+    // El picker unificado también sabe listar notas .binot, no solo audios.
     var showNativePickerSheet by remember { mutableStateOf(false) }
 
     fun launchImportPicker() {
@@ -329,10 +327,9 @@ fun HistoryScreen(
                         Icons.Default.History to "Oldest",
                         Icons.AutoMirrored.Filled.Sort to "A–Z"
                     )
-                    // FIX 6: ButtonGroup en material3 1.5.0-alpha28 exige 'overflowIndicator'
-                    // y su content lambda NO es @Composable (por eso fallaba el remember).
-                    // Además toggleableItem no acepta modifier/interactionSource y exige 'label'.
-                    // Se usa el mismo patrón Row + ToggleButton que ya compila en Settings/Onboarding.
+                    // ButtonGroup en material3 1.5.0-alpha28 exige 'overflowIndicator' y su
+                    // content lambda no es @Composable. Se usa el mismo patrón Row + ToggleButton
+                    // que ya compila en Settings/Onboarding.
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
@@ -439,8 +436,7 @@ fun HistoryScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
-                            // FIX: el editor de label/color estaba escondido detrás de un
-                            // long-press invisible. Ahora hay un botón explícito.
+                            // Botón explícito para editar label/color (antes solo long-press).
                             if (!isMultiSelectLabelMode) {
                                 BouncyIconButton(
                                     onClick = {
@@ -478,7 +474,7 @@ fun HistoryScreen(
 
                     NavigationDrawerItem(
                         label = { Text("Trash", color = MaterialTheme.colorScheme.error) },
-                        icon = { Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                        icon = { Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error) },
                         selected = false,
                         onClick = {
                             coroutineScope.launch { drawerState.close() }
@@ -513,11 +509,6 @@ fun HistoryScreen(
                                     Icon(Icons.Default.MoreVert, contentDescription = "Options")
                                 }
 
-                                // FIX 5: el menú vive en SelectionDropdownMenu,
-                                // fuera del scope de este composable, así que no hereda
-                                // el @OptIn(ExperimentalMaterial3ExpressiveApi) que
-                                // traía las sobrecargas expresivas que exigían
-                                // 'overflowIndicator' y 'label'.
                                 SelectionDropdownMenu(
                                     expanded = showSelectionMenu,
                                     onDismissRequest = { showSelectionMenu = false },
@@ -823,10 +814,8 @@ fun HistoryScreen(
         }
     }
 
-    // Picker unificado: se reusa exactamente el mismo componente y la misma lógica de
-    // import que RecordScreen (ObinotFilePickerSheet + ImportExportHelper.importFile),
-    // así no hay dos implementaciones divergentes del mismo picker. El diseño del FAB
-    // que lo abre en History queda intacto, solo cambia qué se abre al tocarlo.
+    // Picker unificado: reusa el mismo componente y la misma lógica de import que
+    // RecordScreen (ObinotFilePickerSheet + ImportExportHelper.importFile).
     if (showNativePickerSheet) {
         com.example.ui.components.ObinotFilePickerSheet(
             onDismiss = { showNativePickerSheet = false },
@@ -1039,11 +1028,11 @@ fun HistoryScreen(
 }
 
 // ============================================================
-// Selection menu — extraído para que NO herede el opt-in
+// Selection menu — extraído para que no herede el opt-in
 // ExperimentalMaterial3ExpressiveApi del HistoryScreen, así el
 // compilador resuelve a la sobrecarga estándar de DropdownMenu
 // y DropdownMenuItem (las expresivas exigen 'overflowIndicator'
-// y 'label' respectivamente y estaban ganando la resolución).
+// y 'label' respectivamente y ganaban la resolución).
 // ============================================================
 @Composable
 private fun SelectionDropdownMenu(

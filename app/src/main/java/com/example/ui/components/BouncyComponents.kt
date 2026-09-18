@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -18,7 +19,6 @@ import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -30,15 +30,48 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 
 /**
- * Modificador base que aplica el efecto bouncy a cualquier elemento clickable.
+ * Aplica el efecto bouncy (squish + rebound) a un [Animatable] externo.
+ * Reutilizable por cualquier componente que quiera el efecto sin heredar
+ * de los Bouncy* predefinidos.
+ *
+ * [pressedScale] controla cuánto se encoge el elemento al presionarlo.
+ * Valores típicos: 0.94 para botones, 0.88 para icon buttons, 0.97 para cards.
+ *
+ * En taps rápidos, Press y Release llegan casi juntos y el animateTo del
+ * press se cancela antes de ser visible. Para garantizar siempre una
+ * reacción perceptible, si el scale nunca bajó del umbral se fuerza el
+ * squish con snapTo antes del rebound.
+ */
+suspend fun observeBouncyPress(
+    interactionSource: MutableInteractionSource,
+    scale: Animatable<Float, AnimationVector1D>,
+    pressedScale: Float = 0.94f
+) {
+    interactionSource.interactions.collect { interaction ->
+        when (interaction) {
+            is PressInteraction.Press -> {
+                scale.animateTo(
+                    pressedScale,
+                    spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = 1800f
+                    )
+                )
+            }
+            is PressInteraction.Release, is PressInteraction.Cancel -> {
+                if (scale.value > 0.96f) scale.snapTo(0.93f)
+                scale.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Modificador que aplica el efecto bouncy a cualquier elemento clickable.
  * Uso: Modifier.bouncyClickable { onClick() }
- *
- * El dip mínimo de 0.94f + rebound de 0.40f da la sensación de "siempre hay animación",
- * incluso con taps ultra rápidos.
- *
- * NOTA: `Modifier.composed` está en desuso. La forma moderna es declarar
- * el modifier como @Composable y devolver un Modifier compuesto, que es lo
- * que se hace aquí.
  */
 @Composable
 fun Modifier.bouncyClickable(
@@ -47,35 +80,9 @@ fun Modifier.bouncyClickable(
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val scale = remember { Animatable(1f) }
-
     LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.94f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = 1800f
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
-                    // animateTo del press se cancela antes de ser visible. Si el scale
-                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
-                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
-                    // se perdió al centralizar los componentes).
-                    if (scale.value > 0.96f) scale.snapTo(0.93f)
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
+        observeBouncyPress(interactionSource, scale)
     }
-
     return this
         .graphicsLayer {
             scaleX = scale.value
@@ -99,35 +106,9 @@ fun BouncyButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val scale = remember { Animatable(1f) }
-
     LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.94f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = 1800f
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
-                    // animateTo del press se cancela antes de ser visible. Si el scale
-                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
-                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
-                    // se perdió al centralizar los componentes).
-                    if (scale.value > 0.96f) scale.snapTo(0.93f)
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
+        observeBouncyPress(interactionSource, scale)
     }
-
     Button(
         onClick = onClick,
         enabled = enabled,
@@ -151,35 +132,9 @@ fun BouncyOutlinedButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val scale = remember { Animatable(1f) }
-
     LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.96f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = 1800f
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
-                    // animateTo del press se cancela antes de ser visible. Si el scale
-                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
-                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
-                    // se perdió al centralizar los componentes).
-                    if (scale.value > 0.96f) scale.snapTo(0.93f)
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
+        observeBouncyPress(interactionSource, scale, pressedScale = 0.96f)
     }
-
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
@@ -202,35 +157,9 @@ fun BouncyIconButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val scale = remember { Animatable(1f) }
-
     LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.88f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = 1800f
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
-                    // animateTo del press se cancela antes de ser visible. Si el scale
-                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
-                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
-                    // se perdió al centralizar los componentes).
-                    if (scale.value > 0.96f) scale.snapTo(0.93f)
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
+        observeBouncyPress(interactionSource, scale, pressedScale = 0.88f)
     }
-
     IconButton(
         onClick = onClick,
         enabled = enabled,
@@ -252,35 +181,9 @@ fun BouncyCapsule(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val scale = remember { Animatable(1f) }
-
     LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.94f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = 1800f
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
-                    // animateTo del press se cancela antes de ser visible. Si el scale
-                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
-                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
-                    // se perdió al centralizar los componentes).
-                    if (scale.value > 0.96f) scale.snapTo(0.93f)
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
+        observeBouncyPress(interactionSource, scale)
     }
-
     Row(
         modifier = modifier
             .graphicsLayer {
@@ -310,35 +213,9 @@ fun BouncyChip(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val scale = remember { Animatable(1f) }
-
     LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.94f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = 1800f
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    // FIX: en un tap rápido, Press y Release llegan casi juntos y el
-                    // animateTo del press se cancela antes de ser visible. Si el scale
-                    // nunca bajó lo suficiente, forzamos el squish con snapTo para que
-                    // SIEMPRE haya reacción visible (esto existía antes del refactor y
-                    // se perdió al centralizar los componentes).
-                    if (scale.value > 0.96f) scale.snapTo(0.93f)
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
+        observeBouncyPress(interactionSource, scale)
     }
-
     Row(
         modifier = Modifier
             .graphicsLayer {
