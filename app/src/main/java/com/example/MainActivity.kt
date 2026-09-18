@@ -296,6 +296,7 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         sharedTransitionScope = this@SharedTransitionLayout,
                         onNoteClick = { id -> navController.navigate("result/$id") },
                         onTrashClick = { navController.navigate("trash") },
+                        useNativePicker = useNativePicker,
                         onImportFile = { uri -> ImportExportHelper.importFile(context, uri, appContainer.noteRepository) }
                     )
                 }

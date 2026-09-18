@@ -77,7 +77,8 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EditOutline
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -119,6 +120,7 @@ import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyIconButton
 import com.example.ui.components.MarkdownText
 import com.example.ui.components.bouncyClickable
+import com.example.ui.components.observeBouncyPress
 import com.example.ui.theme.isDynamicLabelColor
 import com.example.ui.theme.resolveLabelColors
 import com.example.ui.theme.resolveLabelDotColor
@@ -149,7 +151,8 @@ fun HistoryScreen(
     sharedTransitionScope: SharedTransitionScope,
     onNoteClick: (Int) -> Unit,
     onTrashClick: () -> Unit,
-    onImportFile: suspend (Uri) -> Int?
+    onImportFile: suspend (Uri) -> Int?,
+    useNativePicker: Boolean = false
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -223,6 +226,19 @@ fun HistoryScreen(
                     snackbarHostState.showSnackbar("Failed to import file! Ensure the format is supported.")
                 }
             }
+        }
+    }
+
+    // FIX: el FAB de History usaba siempre el picker de Android, sin importar el toggle
+    // "Native Audio Picker" de Settings. Ahora respeta el mismo interruptor que Record,
+    // y el picker unificado también sabe listar notas .binot (no solo audios).
+    var showNativePickerSheet by remember { mutableStateOf(false) }
+
+    fun launchImportPicker() {
+        if (useNativePicker) {
+            showNativePickerSheet = true
+        } else {
+            importLauncher.launch(arrayOf("*/*"))
         }
     }
 
@@ -593,26 +609,11 @@ fun HistoryScreen(
                         val fabInteractionSource = remember { MutableInteractionSource() }
                         val fabScale = remember { Animatable(1f) }
                         LaunchedEffect(fabInteractionSource) {
-                            fabInteractionSource.interactions.collect { interaction ->
-                                when (interaction) {
-                                    is PressInteraction.Press -> {
-                                        fabScale.animateTo(
-                                            0.92f,
-                                            spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium)
-                                        )
-                                    }
-                                    is PressInteraction.Release, is PressInteraction.Cancel -> {
-                                        fabScale.animateTo(
-                                            1f,
-                                            spring(0.40f, Spring.StiffnessMediumLow)
-                                        )
-                                    }
-                                }
-                            }
+                            observeBouncyPress(fabInteractionSource, fabScale, pressedScale = 0.92f)
                         }
 
                         FloatingActionButton(
-                            onClick = { importLauncher.launch(arrayOf("*/*")) },
+                            onClick = { launchImportPicker() },
                             shape = RoundedCornerShape(corner),
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -820,6 +821,28 @@ fun HistoryScreen(
                 }
             }
         }
+    }
+
+    // Picker unificado: se reusa exactamente el mismo componente y la misma lógica de
+    // import que RecordScreen (ObinotFilePickerSheet + ImportExportHelper.importFile),
+    // así no hay dos implementaciones divergentes del mismo picker. El diseño del FAB
+    // que lo abre en History queda intacto, solo cambia qué se abre al tocarlo.
+    if (showNativePickerSheet) {
+        com.example.ui.components.ObinotFilePickerSheet(
+            onDismiss = { showNativePickerSheet = false },
+            onFileSelected = { uri ->
+                showNativePickerSheet = false
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Importing file...")
+                    val newId = onImportFile(uri)
+                    if (newId != null) {
+                        onNoteClick(newId)
+                    } else {
+                        snackbarHostState.showSnackbar("Failed to import file! Ensure the format is supported.")
+                    }
+                }
+            }
+        )
     }
 
     if (showNewLabelDialog) {
@@ -1395,17 +1418,7 @@ fun NoteCard(
     val interactionSource = remember { MutableInteractionSource() }
     val cardScale = remember { Animatable(1f) }
     LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    cardScale.animateTo(0.97f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium))
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    if (cardScale.value > 0.96f) cardScale.snapTo(0.93f)
-                    cardScale.animateTo(1f, spring(0.40f, Spring.StiffnessMediumLow))
-                }
-            }
-        }
+        observeBouncyPress(interactionSource, cardScale, pressedScale = 0.97f)
     }
 
     Card(

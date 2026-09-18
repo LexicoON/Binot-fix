@@ -616,7 +616,9 @@ class ResultViewModel(
                         if (targetBitrate != null) {
                             launch(Dispatchers.Main) { _loadingMessage.value = "Compressing audio..." }
                             val tempFile = File(appContext.cacheDir, "compressed_${System.currentTimeMillis()}.mp4")
-                            when (val result = AudioCompressor.compress(originalFile, tempFile, targetBitrate)) {
+                            when (val result = AudioCompressor.compress(originalFile, tempFile, targetBitrate) { percent ->
+                                launch(Dispatchers.Main) { _loadingMessage.value = "Compressing audio... $percent%" }
+                            }) {
                                 is AudioCompressor.Result.Success -> {
                                     fileToUpload = result.outputFile
                                     compressedFile = result.outputFile
@@ -863,10 +865,10 @@ class ResultViewModel(
                 }
 
                 val taskInstruction = when (task) {
-                    0 -> "Task: STRICT PROOFREADING (TIDY UP). Fix typos, grammar, and remove filler words. Preserve the exact original meaning and tone. DO NOT add outside facts. If it's a multi-sentence text, divide it logically into sections."
+                    0 -> "Task: TIDY UP. Fix typos, grammar, and remove filler words/false starts. Be precise. But do NOT flatten the speaker's voice into generic corporate or robotic prose — keep their natural tone, word choices, and register exactly as it was (casual stays casual, formal stays formal, funny stays funny). You're cleaning up how it was said, not rewriting who said it. DO NOT add outside facts. If it's a multi-sentence text, divide it logically into sections."
                     1 -> "Task: SUMMARIZE. Extract the core information and make a concise summary. Ignore filler words. Keep it under 30% of the original length."
                     2 -> "Task: ANALYZE. Extract the main points, underlying sentiments, and any action items or decisions."
-                    else -> "Task: STRICT PROOFREADING (TIDY UP)."
+                    else -> "Task: TIDY UP."
                 }
 
                 val formatInstruction = when (format) {
@@ -883,8 +885,8 @@ class ResultViewModel(
                 }
 
                 val geminiSystemPrompt = """
-                    [SYSTEM: ENGINE MODE ENABLED]
-                    You are a strict text processing engine, NOT a conversational chatbot.
+                    [SYSTEM: TEXT PROCESSOR MODE]
+                    You process text for a note-taking app, not a chatbot: never chat, greet, or comment — just return the processed text. Within that, write like a careful human editor, not a corporate style guide: match the register of the source instead of defaulting to stiff, formal phrasing.
                     TARGET LANGUAGE: $language. You MUST translate the output to $language if the input is different.
                     
                     $taskInstruction
@@ -912,8 +914,8 @@ class ResultViewModel(
                 """.trimIndent()
 
                 val groqSystemPrompt = """
-                    [SYSTEM: ENGINE MODE ENABLED]
-                    You are a strict text processing engine, NOT a conversational chatbot.
+                    [SYSTEM: TEXT PROCESSOR MODE]
+                    You process text for a note-taking app, not a chatbot: never chat, greet, or comment — just return the processed text. Within that, write like a careful human editor, not a corporate style guide: match the register of the source instead of defaulting to stiff, formal phrasing.
                     TARGET LANGUAGE: $language. You MUST translate the output to $language if the input is different.
                     
                     $taskInstruction

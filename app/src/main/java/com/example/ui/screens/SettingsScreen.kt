@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Notes
@@ -118,6 +119,127 @@ private fun ExpressiveToggleGroup(
                 )
             }
         }
+    }
+}
+
+// ============================================================
+// Selector genérico "fila con valor actual + hoja de selección".
+// Extraído del selector de Output Language para poder reusarlo tal
+// cual en Color Palette (y en cualquier otro picker de una sola
+// opción de una lista, sin duplicar la hoja modal cada vez).
+// ============================================================
+@Composable
+private fun SettingsSelectorRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsSelectionSheet(
+    title: String,
+    options: List<String>,
+    selected: String,
+    searchable: Boolean = true,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    ModalBottomSheet(
+        onDismissRequest = { onDismiss(); query = "" },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f).padding(horizontal = 16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            if (searchable) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                )
+            }
+            val filtered = if (searchable) options.filter { it.contains(query, ignoreCase = true) } else options
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                items(filtered) { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                onSelect(option)
+                                query = ""
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = option, style = MaterialTheme.typography.bodyLarge)
+                        if (option == selected) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Insignia "BETA" reutilizable. Antes cada card la armaba a mano con un Surface+Text
+ * suelto dentro de un Row sin reservar espacio para el título primero; en pantallas
+ * angostas o con letra grande del sistema, el título (titleLarge) se comía todo el
+ * ancho disponible y la insignia quedaba con ~0px, forzando que "BETA" se partiera
+ * letra por letra en líneas verticales. Por eso el título que acompaña a esta
+ * insignia SIEMPRE debe llevar `Modifier.weight(1f, fill = false)` + `maxLines = 1`
+ * + `overflow = TextOverflow.Ellipsis`, para que Compose reserve el tamaño natural
+ * de la insignia (fija, chica) ANTES de repartir lo que sobra al título.
+ */
+@Composable
+private fun BetaBadge() {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.tertiaryContainer
+    ) {
+        Text(
+            "BETA",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+        )
     }
 }
 
@@ -209,6 +331,7 @@ fun SettingsScreen(
     var pendingModeSelection by remember { mutableStateOf(-1) }
     var showApplyAllDialog by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
+    var showColorPaletteSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
 
     val supportedLanguages = listOf(
@@ -279,9 +402,9 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    Text("Mix Mode (Beta)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Dynamic (Beta)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Text(
-                        "Automatically picks the best provider for each task, so both free quotas last longer. Requires both API keys to be set.",
+                        "Automatically picks the best provider for each task, so both free quotas last longer. Requires both API keys to be set. Renamed from \"Mix\" — same feature.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -444,55 +567,34 @@ fun SettingsScreen(
     }
 
     if (showLanguageSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showLanguageSheet = false; languageSearchQuery = "" },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f).padding(horizontal = 16.dp)) {
-                Text(
-                    text = "Select Language",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                OutlinedTextField(
-                    value = languageSearchQuery,
-                    onValueChange = { languageSearchQuery = it },
-                    label = { Text("Search Language...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-                )
-
-                val filteredLanguages = supportedLanguages.filter {
-                    it.contains(languageSearchQuery, ignoreCase = true)
-                }
-
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    items(filteredLanguages) { lang ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    tempAiLanguage = lang
-                                    showLanguageSheet = false
-                                    languageSearchQuery = ""
-                                }
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = lang, style = MaterialTheme.typography.bodyLarge)
-                            if (lang == tempAiLanguage) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
+        SettingsSelectionSheet(
+            title = "Select Language",
+            options = supportedLanguages,
+            selected = tempAiLanguage,
+            searchable = true,
+            onDismiss = { showLanguageSheet = false },
+            onSelect = { lang ->
+                tempAiLanguage = lang
+                showLanguageSheet = false
             }
-        }
+        )
+    }
+
+    if (showColorPaletteSheet) {
+        val styles = com.example.ui.theme.ColorStyle.entries
+        val currentLabel = styles.getOrElse(colorStyle) { com.example.ui.theme.ColorStyle.TONAL_SPOT }.label
+        SettingsSelectionSheet(
+            title = "Color Palette",
+            options = styles.map { it.label },
+            selected = currentLabel,
+            searchable = false,
+            onDismiss = { showColorPaletteSheet = false },
+            onSelect = { label ->
+                val index = styles.indexOfFirst { it.label == label }.coerceAtLeast(0)
+                viewModel.saveColorStyle(index)
+                showColorPaletteSheet = false
+            }
+        )
     }
 
     Scaffold(
@@ -563,26 +665,12 @@ fun SettingsScreen(
                         Text("Global AI Preferences", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         Text("Notes will be automatically processed using these settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .clickable { showLanguageSheet = true }
-                                .padding(16.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Language, contentDescription = "Language", tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text("Output Language", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                    Text(tempAiLanguage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        SettingsSelectorRow(
+                            icon = Icons.Default.Language,
+                            label = "Output Language",
+                            value = tempAiLanguage,
+                            onClick = { showLanguageSheet = true }
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -673,7 +761,7 @@ fun SettingsScreen(
                         ExpressiveToggleGroup(
                             selectedIndex = tempAiProvider,
                             onSelect = { tempAiProvider = it },
-                            labels = listOf("Gemini", "Groq", "Mix (Beta)"),
+                            labels = listOf("Gemini", "Groq", "Dynamic"),
                             icons = listOf(
                                 Icons.Default.AutoAwesome,
                                 Icons.Default.Bolt,
@@ -750,8 +838,23 @@ fun SettingsScreen(
                                         val groqKey = groqKeyInput
                                         val bothConfigured = geminiKey.isNotBlank() && groqKey.isNotBlank()
 
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "Dynamic",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            BetaBadge()
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+
                                         Text(
-                                            text = "Mix automatically picks the best provider for each task, so both free quotas last longer.",
+                                            text = "Dynamic automatically picks the best provider for each task, so both free quotas last longer.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.SemiBold
                                         )
@@ -786,8 +889,8 @@ fun SettingsScreen(
                                                 viewModel.saveAiProvider(tempAiProvider)
                                                 coroutineScope.launch {
                                                     snackbarHostState.showSnackbar(
-                                                        if (bothConfigured) "Mix (Beta) enabled!"
-                                                        else "Mix enabled, but you need both API keys to work properly."
+                                                        if (bothConfigured) "Dynamic mode enabled!"
+                                                        else "Dynamic enabled, but you need both API keys to work properly."
                                                     )
                                                 }
                                             },
@@ -892,20 +995,16 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Native Audio Picker", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        "Native Audio Picker",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = MaterialTheme.colorScheme.tertiaryContainer
-                                    ) {
-                                        Text(
-                                            "BETA",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                        )
-                                    }
+                                    BetaBadge()
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
@@ -933,7 +1032,16 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Auto Compression", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "Auto Compression",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            BetaBadge()
                             Spacer(modifier = Modifier.weight(1f))
                             IconButton(onClick = { showCompressionInfoDialog = true }) {
                                 Icon(Icons.Default.Info, contentDescription = "Compression Info", tint = MaterialTheme.colorScheme.primary)
@@ -999,11 +1107,11 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
                         )
-                        TextToggleGroup(
-                            selectedIndex = colorStyle,
-                            onSelect = { viewModel.saveColorStyle(it) },
-                            labels = listOf("Tonal", "Vibrant", "Express", "Rainbow", "Neutral"),
-                            modifier = Modifier.fillMaxWidth()
+                        SettingsSelectorRow(
+                            icon = Icons.Default.Palette,
+                            label = "Style",
+                            value = com.example.ui.theme.ColorStyle.entries.getOrElse(colorStyle) { com.example.ui.theme.ColorStyle.TONAL_SPOT }.label,
+                            onClick = { showColorPaletteSheet = true }
                         )
                     }
                 }
@@ -1068,47 +1176,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .bouncyClickable {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/densl"))
-                            context.startActivity(intent)
-                        }
-                ) {
-                    Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocalCafe, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text("Support Development", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                            Text("Donate via Ko-fi", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bouncyClickable {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://saweria.co/Densl"))
-                            context.startActivity(intent)
-                        }
-                ) {
-                    Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text("Support Development", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                            Text("Donate via Saweria", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bouncyClickable {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/DENSLnetion/Binot"))
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/LexicoON/Binot-fix"))
                             context.startActivity(intent)
                         }
                 ) {

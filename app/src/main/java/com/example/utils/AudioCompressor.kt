@@ -76,11 +76,16 @@ object AudioCompressor {
     /**
      * Comprime [inputFile] a AAC con el bitrate [targetBitrate].
      * Escribe el resultado en [outputFile].
+     *
+     * [onProgress] reporta 0-100 en base a cuánto del audio ya se leyó del extractor.
+     * Es la única forma real de distinguir "está comprimiendo pero es lento" de
+     * "está trabado": si el número deja de subir por varios segundos, algo anda mal.
      */
     suspend fun compress(
         inputFile: File,
         outputFile: File,
-        targetBitrate: Int
+        targetBitrate: Int,
+        onProgress: (percent: Int) -> Unit = {}
     ): Result = withContext(Dispatchers.IO) {
         if (!inputFile.exists()) {
             return@withContext Result.Failure("Input file does not exist")
@@ -115,6 +120,13 @@ object AudioCompressor {
 
             extractor.selectTrack(audioTrackIndex)
 
+            // Duración total en microsegundos, para calcular el % de avance.
+            // Si el contenedor no la trae (raro pero pasa), caemos a -1 y el progreso
+            // reportado se queda en un valor fijo en vez de dividir por cero.
+            val totalDurationUs = if (inputFormat.containsKey(MediaFormat.KEY_DURATION)) {
+                inputFormat.getLong(MediaFormat.KEY_DURATION)
+            } else -1L
+
             val sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val inputMime = inputFormat.getString(MediaFormat.KEY_MIME)!!
@@ -136,7 +148,12 @@ object AudioCompressor {
                     MediaCodecInfo.CodecProfileLevel.AACObjectLC
                 )
                 setInteger(MediaFormat.KEY_BIT_RATE, targetBitrate)
-                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+                // FIX: 16384 (16 KB) es chico para un solo buffer PCM de un decoder
+                // con canales/sample-rate altos; con audio estéreo a 44.1kHz un único
+                // buffer del decoder puede superar eso y tirar BufferOverflowException
+                // (que el catch de más abajo silenciaba como "Unknown error"). 64 KB
+                // cubre holgadamente cualquier chunk típico de un decoder de audio.
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 65536)
             }
 
             encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
@@ -195,12 +212,43 @@ object AudioCompressor {
                 return false
             }
 
-            val deadline = System.currentTimeMillis() + 10 * 60 * 1000L // tope de seguridad
+            val deadline = System.currentTimeMillis() + 10 * 60 * 1000L // tope de seguridad absoluto
+
+            // FIX: antes, si el pipeline se trababa por CUALQUIER motivo (un decoder que
+            // nunca devuelve output en cierto dispositivo, un encoder que se cuelga, etc.),
+            // el usuario se quedaba mirando "Compressing audio..." hasta 10 MINUTOS sin
+            // ninguna señal de que algo estaba mal. Ahora medimos cuánto avanza el
+            // extractor real (sampleTime) y si no avanza en 8s seguidos, se aborta con un
+            // error claro en vez de colgarse en silencio. Esto es justo lo que hace falta
+            // para distinguir "lento" (el % sigue subiendo) de "trabado" (el % no se mueve).
+            var lastProgressUs = 0L
+            var lastProgressAt = System.currentTimeMillis()
+            var lastReportedPercent = -1
+            val stallTimeoutMs = 8_000L
+
+            fun reportProgress() {
+                if (totalDurationUs <= 0) return
+                val currentUs = extractor.sampleTime.let { if (it < 0) totalDurationUs else it }
+                if (currentUs != lastProgressUs) {
+                    lastProgressUs = currentUs
+                    lastProgressAt = System.currentTimeMillis()
+                }
+                val percent = ((currentUs.coerceAtMost(totalDurationUs) * 100) / totalDurationUs).toInt().coerceIn(0, 99)
+                if (percent != lastReportedPercent) {
+                    lastReportedPercent = percent
+                    onProgress(percent)
+                }
+            }
 
             while (!encoderDone) {
-                if (System.currentTimeMillis() > deadline) {
+                val now = System.currentTimeMillis()
+                if (now > deadline) {
                     return@withContext Result.Failure("Compression timed out")
                 }
+                if (!inputDone && now - lastProgressAt > stallTimeoutMs) {
+                    return@withContext Result.Failure("Compression stalled (no progress for ${stallTimeoutMs / 1000}s)")
+                }
+                reportProgress()
 
                 // 1. Extractor -> decoder
                 if (!inputDone) {
@@ -277,6 +325,7 @@ object AudioCompressor {
                 drainEncoderOnce(10_000)
             }
 
+            onProgress(100)
             Result.Success(
                 outputFile = outputFile,
                 originalSize = inputFile.length(),
