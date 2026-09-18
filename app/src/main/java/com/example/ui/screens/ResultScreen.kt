@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,9 +18,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -30,16 +29,16 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +50,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
@@ -66,10 +66,12 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -82,14 +84,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -118,7 +120,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
+import com.example.ui.components.AudioFilePickerSheet
+import com.example.ui.components.BouncyButton
+import com.example.ui.components.BouncyCapsule
+import com.example.ui.components.BouncyChip
+import com.example.ui.components.BouncyIconButton
 import com.example.ui.components.MarkdownText
+import com.example.ui.theme.resolveLabelColors
+import com.example.utils.AudioRecorderManager
 import com.example.viewmodel.ResultViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -127,7 +136,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ResultScreen(
     viewModel: ResultViewModel,
-    noteId: Int, 
+    noteId: Int,
     animatedVisibilityScope: AnimatedVisibilityScope,
     sharedTransitionScope: SharedTransitionScope,
     onNavigateBack: () -> Unit
@@ -137,14 +146,20 @@ fun ResultScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val loadingMessage by viewModel.loadingMessage.collectAsState()
     val error by viewModel.error.collectAsState()
-    
+
     val isPlaying by viewModel.isPlaying.collectAsState()
     val playbackProgress by viewModel.playbackProgress.collectAsState()
     val allLabels by viewModel.allLabels.collectAsState()
+    val labelColors by viewModel.labelColors.collectAsState()
+
+    val hasPhoneTranscription = remember(note?.rawText) {
+        note?.rawText?.startsWith(AudioRecorderManager.PHONE_TRANSCRIPTION_MARKER) == true
+    }
 
     var showSidePanel by remember { mutableStateOf(false) }
     var showNewLabelDialog by remember { mutableStateOf(false) }
-    
+    var showAudioPicker by remember { mutableStateOf(false) }
+
     var isEditMode by remember { mutableStateOf(false) }
     var textValue by remember(note?.id) { mutableStateOf(TextFieldValue(note?.rawText ?: "")) }
     val undoStack = remember { mutableStateListOf<TextFieldValue>() }
@@ -182,14 +197,20 @@ fun ResultScreen(
     var copyAction by remember { mutableStateOf<() -> Unit>({}) }
     var selectAllAction by remember { mutableStateOf<() -> Unit>({}) }
     var selectionResetKey by remember { mutableStateOf(0) }
-    
+
     val clearSelection: () -> Unit = {
         if (showCustomMenu) showCustomMenu = false
         isTextSelected = false
         selectionResetKey++
     }
 
-    val listState = rememberLazyListState()
+    // Reemplazo de LazyListState por ScrollState: MarkdownText ya no es lazy
+    // (ver comentario en MarkdownText.kt), así que necesitamos pixel-scroll.
+    // markdownLinePositions se llena desde dentro de MarkdownText para permitir
+    // el scroll-to-search-result sin LazyListState.
+    val markdownScrollState = rememberScrollState()
+    val markdownLinePositions: SnapshotStateMap<Int, Int> = remember { mutableStateMapOf() }
+
     val rawTextScrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -200,8 +221,8 @@ fun ResultScreen(
 
     LaunchedEffect(isPointerDown) {
         if (!isPointerDown) return@LaunchedEffect
-        val edgeThreshold = 72f 
-        val maxScrollSpeedPx = 28f 
+        val edgeThreshold = 72f
+        val maxScrollSpeedPx = 28f
         while (isPointerDown) {
             val pointerY = dragPointerWindowY
             val bounds = selectionContentBounds
@@ -212,22 +233,22 @@ fun ResultScreen(
                 when {
                     distanceFromTop in 0f..edgeThreshold -> {
                         val speed = maxScrollSpeedPx * (1f - distanceFromTop / edgeThreshold)
-                        if (usingMarkdown) listState.scrollBy(-speed) else rawTextScrollState.scrollBy(-speed)
+                        if (usingMarkdown) markdownScrollState.scrollBy(-speed) else rawTextScrollState.scrollBy(-speed)
                     }
                     distanceFromBottom in 0f..edgeThreshold -> {
                         val speed = maxScrollSpeedPx * (1f - distanceFromBottom / edgeThreshold)
-                        if (usingMarkdown) listState.scrollBy(speed) else rawTextScrollState.scrollBy(speed)
+                        if (usingMarkdown) markdownScrollState.scrollBy(speed) else rawTextScrollState.scrollBy(speed)
                     }
                 }
             }
-            delay(16L) 
+            delay(16L)
         }
     }
 
     val focusManager = LocalFocusManager.current
     val clipboardManager = LocalClipboardManager.current
     val deviceLanguage = java.util.Locale.getDefault().displayLanguage
-    
+
     var isTitleFocused by remember { mutableStateOf(false) }
     val titleFocusRequester = remember { FocusRequester() }
 
@@ -303,7 +324,7 @@ fun ResultScreen(
 
     fun extractSelectedTextAndExecute(action: (String) -> Unit) {
         val oldClip = clipboardManager.getText()
-        copyAction() 
+        copyAction()
         val newClip = clipboardManager.getText()?.text ?: ""
         if (oldClip != null) {
             clipboardManager.setText(oldClip)
@@ -313,14 +334,14 @@ fun ResultScreen(
         clearSelection()
         action(newClip.trim())
     }
-    
+
     val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
 
     with(sharedTransitionScope) {
         Scaffold(
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            containerColor = MaterialTheme.colorScheme.surface, 
+            containerColor = MaterialTheme.colorScheme.surface,
             modifier = Modifier
                 .sharedBounds(
                     sharedContentState = rememberSharedContentState(key = "note-$noteId"),
@@ -336,7 +357,7 @@ fun ResultScreen(
                         containerColor = MaterialTheme.colorScheme.surface,
                         scrolledContainerColor = MaterialTheme.colorScheme.surface
                     ),
-                    title = { 
+                    title = {
                         if (note != null && showContent) {
                             BasicTextField(
                                 value = note!!.title,
@@ -385,8 +406,8 @@ fun ResultScreen(
                         }
                     },
                     navigationIcon = {
-                        IconButton(onClick = {
-                            if (isTitleFocused) focusManager.clearFocus() 
+                        BouncyIconButton(onClick = {
+                            if (isTitleFocused) focusManager.clearFocus()
                             else if (isEditMode) {
                                 if (hasUnsavedChanges) showCancelConfirmDialog = true else isEditMode = false
                             }
@@ -397,13 +418,13 @@ fun ResultScreen(
                     },
                     actions = {
                         AnimatedVisibility(
-                            visible = !isTitleFocused && showContent && note?.rawText != "Pending Transcription",
+                            visible = !isTitleFocused && showContent && note?.rawText != AudioRecorderManager.PENDING_TRANSCRIPTION,
                             enter = fadeIn() + scaleIn(),
                             exit = fadeOut() + scaleOut()
                         ) {
                             if (isEditMode) {
                                 Row {
-                                    IconButton(
+                                    BouncyIconButton(
                                         onClick = {
                                             if (undoStack.isNotEmpty()) {
                                                 redoStack.add(textValue)
@@ -414,7 +435,7 @@ fun ResultScreen(
                                     ) {
                                         Icon(imageVector = Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (undoStack.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
                                     }
-                                    IconButton(
+                                    BouncyIconButton(
                                         onClick = {
                                             if (redoStack.isNotEmpty()) {
                                                 undoStack.add(textValue)
@@ -427,7 +448,7 @@ fun ResultScreen(
                                     }
                                 }
                             } else {
-                                IconButton(onClick = { showSidePanel = true }) {
+                                BouncyIconButton(onClick = { showSidePanel = true }) {
                                     Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Options")
                                 }
                             }
@@ -437,11 +458,28 @@ fun ResultScreen(
                 )
             },
             floatingActionButton = {
-                if (note != null && note!!.summary.isNullOrEmpty() && !isLoading && showContent && note!!.rawText != "Pending Transcription") {
+                if (note != null && note!!.summary.isNullOrEmpty() && !isLoading && showContent && note!!.rawText != AudioRecorderManager.PENDING_TRANSCRIPTION) {
                     val isFabExpanded by remember { derivedStateOf { rawTextScrollState.value == 0 || isEditMode } }
+                    val fabInteraction = remember { MutableInteractionSource() }
+                    val fabScale = remember { Animatable(1f) }
+                    LaunchedEffect(fabInteraction) {
+                        fabInteraction.interactions.collect { interaction ->
+                            when (interaction) {
+                                is PressInteraction.Press -> fabScale.animateTo(
+                                    0.94f,
+                                    spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium)
+                                )
+                                is PressInteraction.Release, is PressInteraction.Cancel -> fabScale.animateTo(
+                                    1f,
+                                    spring(0.40f, Spring.StiffnessMediumLow)
+                                )
+                            }
+                        }
+                    }
+
                     with(sharedTransitionScope) {
                         ExtendedFloatingActionButton(
-                            onClick = { 
+                            onClick = {
                                 if (isEditMode) {
                                     showDestructiveConfirmDialog = true
                                 } else {
@@ -456,14 +494,19 @@ fun ResultScreen(
                             text = { Text(if (isEditMode) "Process" else "Edit") },
                             containerColor = if (isEditMode) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer,
                             contentColor = if (isEditMode) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                            interactionSource = fabInteraction,
                             modifier = Modifier
                                 .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
                                 .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
-                                .then(with(animatedVisibilityScope) { 
+                                .graphicsLayer {
+                                    scaleX = fabScale.value
+                                    scaleY = fabScale.value
+                                }
+                                .then(with(animatedVisibilityScope) {
                                     Modifier.animateEnterExit(
                                         enter = scaleIn(initialScale = 0f, animationSpec = tween(300)),
                                         exit = scaleOut(targetScale = 0f, animationSpec = tween(300))
-                                    ) 
+                                    )
                                 })
                         )
                     }
@@ -479,7 +522,7 @@ fun ResultScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
-                        .imePadding() 
+                        .imePadding()
                         .onGloballyPositioned { coordinates ->
                             selectionContentBounds = coordinates.boundsInWindow()
                         }
@@ -501,16 +544,14 @@ fun ResultScreen(
                                 } while (event.changes.any { it.pressed })
                                 isPointerDown = false
                                 dragPointerWindowY = null
-                                
+
                                 if (isTextSelected && totalMovement < 24f) {
                                     clearSelection()
                                 }
                             }
                         }
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize()
-                    ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
                         if (isLoading) {
                             val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
                             val alpha by infiniteTransition.animateFloat(
@@ -539,8 +580,8 @@ fun ResultScreen(
 
                                 Spacer(modifier = Modifier.height(48.dp))
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically, 
-                                    horizontalArrangement = Arrangement.Center, 
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     AiThinkingAnimation(color = MaterialTheme.colorScheme.primary)
@@ -555,7 +596,7 @@ fun ResultScreen(
                             }
                         }
 
-                        if (error != null && note!!.rawText == "Pending Transcription" && note!!.audioPath != null) {
+                        if (error != null && note!!.rawText == AudioRecorderManager.PENDING_TRANSCRIPTION && note!!.audioPath != null) {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -568,18 +609,28 @@ fun ResultScreen(
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(error!!, color = MaterialTheme.colorScheme.onErrorContainer, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
                                     Spacer(modifier = Modifier.height(32.dp))
-                                    
-                                    val playInteractionSource = remember { MutableInteractionSource() }
-                                    val isPlayPressed by playInteractionSource.collectIsPressedAsState()
-                                    val playScale by animateFloatAsState(targetValue = if (isPlayPressed) 0.9f else 1f, label = "playScale")
-                                    
+
+                                    val playInteraction = remember { MutableInteractionSource() }
+                                    val playScale = remember { Animatable(1f) }
+                                    LaunchedEffect(playInteraction) {
+                                        playInteraction.interactions.collect { i ->
+                                            when (i) {
+                                                is PressInteraction.Press -> playScale.animateTo(0.90f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium))
+                                                is PressInteraction.Release, is PressInteraction.Cancel -> playScale.animateTo(1f, spring(0.40f, Spring.StiffnessMediumLow))
+                                            }
+                                        }
+                                    }
+
                                     Box(
                                         modifier = Modifier
                                             .size(80.dp)
-                                            .scale(playScale)
+                                            .graphicsLayer {
+                                                scaleX = playScale.value
+                                                scaleY = playScale.value
+                                            }
                                             .clip(CircleShape)
                                             .background(MaterialTheme.colorScheme.error)
-                                            .clickable(interactionSource = playInteractionSource, indication = null) { viewModel.toggleAudio() },
+                                            .clickable(interactionSource = playInteraction, indication = null) { viewModel.toggleAudio() },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -601,7 +652,7 @@ fun ResultScreen(
                                     )
                                     Spacer(modifier = Modifier.height(24.dp))
                                     BouncyCapsule(
-                                        onClick = { exportAudioLauncher.launch("Binot_Audio_Fallback_${note!!.id}.mp4") },
+                                        onClick = { exportAudioLauncher.launch("Obinot_Audio_Fallback_${note!!.id}.mp4") },
                                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                                     ) {
                                         Icon(Icons.Default.Download, contentDescription = "Save Audio", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -629,8 +680,8 @@ fun ResultScreen(
                                     }) {
                                         val cleanSummary = note!!.summary!!.replace(Regex("<!--BINOT_META:.*?-->"), "").trimEnd()
                                         MarkdownText(
-                                            text = cleanSummary, 
-                                            listState = listState,
+                                            text = cleanSummary,
+                                            scrollState = markdownScrollState,
                                             highlightsInfo = note!!.highlightsInfo,
                                             onSavedHighlightClick = { word, noteText, line, start, end ->
                                                 currentHighlightWord = word
@@ -643,12 +694,13 @@ fun ResultScreen(
                                             onResolveSelection = { resolver -> resolveMarkdownSelection = resolver },
                                             highlightQuery = temporaryHighlight,
                                             fontFamily = selectedFont,
+                                            linePositions = markdownLinePositions,
                                             modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                                         )
                                     }
                                 }
                             }
-                        } else if (!isLoading && note!!.rawText != "Pending Transcription") {
+                        } else if (!isLoading && note!!.rawText != AudioRecorderManager.PENDING_TRANSCRIPTION) {
                             if (isEditMode) {
                                 Column(
                                     modifier = Modifier
@@ -673,7 +725,7 @@ fun ResultScreen(
                                                 }
                                                 textValue = newValue
                                             },
-                                            modifier = Modifier.fillMaxSize(), 
+                                            modifier = Modifier.fillMaxSize(),
                                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                                 color = MaterialTheme.colorScheme.onSurface,
                                                 fontFamily = selectedFont
@@ -737,10 +789,20 @@ fun ResultScreen(
                                 val rawSavedHighlightColor = MaterialTheme.colorScheme.tertiaryContainer
                                 val rawSavedHighlightTextColor = MaterialTheme.colorScheme.onTertiaryContainer
                                 val rawTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                                val rawAnnotatedString = remember(note!!.rawText, savedRawHighlights, legacyRawHighlights, temporaryHighlight, rawSavedHighlightColor, rawSavedHighlightTextColor, rawTextColor) {
+
+                                val displayRawText = remember(note!!.rawText) {
+                                    if (note!!.rawText.startsWith(AudioRecorderManager.PHONE_TRANSCRIPTION_MARKER)) {
+                                        note!!.rawText
+                                            .removePrefix(AudioRecorderManager.PHONE_TRANSCRIPTION_MARKER)
+                                            .trimStart('\n', ' ')
+                                    } else {
+                                        note!!.rawText
+                                    }
+                                }
+                                val rawAnnotatedString = remember(displayRawText, savedRawHighlights, legacyRawHighlights, temporaryHighlight, rawSavedHighlightColor, rawSavedHighlightTextColor, rawTextColor) {
                                     buildHighlightedString(
                                         prefix = rawPrefix,
-                                        text = note!!.rawText,
+                                        text = displayRawText,
                                         query = temporaryHighlight,
                                         savedHighlights = savedRawHighlights,
                                         legacyHighlights = legacyRawHighlights,
@@ -750,7 +812,7 @@ fun ResultScreen(
                                         textColor = rawTextColor
                                     )
                                 }
-                                
+
                                 Column(
                                     modifier = Modifier
                                         .weight(1f)
@@ -758,6 +820,12 @@ fun ResultScreen(
                                         .padding(horizontal = 16.dp)
                                         .verticalScroll(rawTextScrollState)
                                 ) {
+                                    if (hasPhoneTranscription) {
+                                        PhoneTranscriptionBanner(
+                                            onReanalyze = { viewModel.reanalyzeWithAI() }
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                    }
                                     SelectionContainer {
                                         Text(
                                             text = rawAnnotatedString,
@@ -829,7 +897,7 @@ fun ResultScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
+                BouncyButton(onClick = {
                     viewModel.saveHighlightNote(
                         currentHighlightWord,
                         highlightNoteInput,
@@ -869,7 +937,7 @@ fun ResultScreen(
     if (showAiExplainSheet) {
         val explainResult by viewModel.explainResult.collectAsState()
         val isExplaining by viewModel.isExplaining.collectAsState()
-        val explainListState = rememberLazyListState()
+        val explainScrollState = rememberScrollState()
 
         val scrollWall = remember {
             object : NestedScrollConnection {
@@ -879,7 +947,7 @@ fun ResultScreen(
         }
 
         ModalBottomSheet(
-            onDismissRequest = { 
+            onDismissRequest = {
                 showAiExplainSheet = false
                 viewModel.clearExplainResult()
             },
@@ -888,7 +956,7 @@ fun ResultScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.75f) 
+                    .fillMaxHeight(0.75f)
                     .padding(horizontal = 24.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -901,7 +969,7 @@ fun ResultScreen(
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(16.dp))
-                
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -915,8 +983,8 @@ fun ResultScreen(
                     } else {
                         MarkdownText(
                             text = explainResult ?: "No explanation available.",
-                            listState = explainListState,
-                            highlightsInfo = null, 
+                            scrollState = explainScrollState,
+                            highlightsInfo = null,
                             onSavedHighlightClick = { _, _, _, _, _ -> },
                             onResolveSelection = { null },
                             highlightQuery = "",
@@ -925,7 +993,7 @@ fun ResultScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -942,7 +1010,7 @@ fun ResultScreen(
                 ): IntOffset {
                     var x = selectionRect.left.toInt() - (popupContentSize.width / 2) + (selectionRect.width.toInt() / 2)
                     var y = selectionRect.top.toInt() - popupContentSize.height - with(density) { 8.dp.roundToPx() }
-                    
+
                     if (x < 16) x = 16
                     if (x + popupContentSize.width > windowSize.width - 16) {
                         x = windowSize.width - popupContentSize.width - 16
@@ -961,7 +1029,7 @@ fun ResultScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
                 Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { 
+                    BouncyIconButton(onClick = {
                         val capturedRect = selectionRect
                         extractSelectedTextAndExecute { text ->
                             if (text.isNotBlank()) {
@@ -1026,19 +1094,19 @@ fun ResultScreen(
                     }) {
                         Icon(Icons.Default.Brush, contentDescription = "Highlight", tint = MaterialTheme.colorScheme.inverseOnSurface)
                     }
-                    IconButton(onClick = { 
+                    BouncyIconButton(onClick = {
                         copyAction()
                         clearSelection()
                         coroutineScope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
                     }) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = MaterialTheme.colorScheme.inverseOnSurface)
                     }
-                    IconButton(onClick = { 
+                    BouncyIconButton(onClick = {
                         selectAllAction()
                     }) {
                         Icon(Icons.Default.SelectAll, contentDescription = "Select All", tint = MaterialTheme.colorScheme.inverseOnSurface)
                     }
-                    IconButton(onClick = { 
+                    BouncyIconButton(onClick = {
                         extractSelectedTextAndExecute { text ->
                             if (text.isNotBlank()) {
                                 aiExplainTargetWord = text
@@ -1060,10 +1128,10 @@ fun ResultScreen(
             title = { Text("Cancel editing?") },
             text = { Text("You have unsaved changes. Are you sure you want to discard them?") },
             confirmButton = {
-                Button(
+                BouncyButton(
                     onClick = {
                         showCancelConfirmDialog = false
-                        hasUnsavedChanges = false 
+                        hasUnsavedChanges = false
                         isEditMode = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -1085,14 +1153,14 @@ fun ResultScreen(
             title = { Text("Overwrite & Process?") },
             text = { Text("Original raw text will be permanently overwritten and processed by the AI Engine. Continue?") },
             confirmButton = {
-                Button(
+                BouncyButton(
                     onClick = {
                         viewModel.updateRawText(textValue.text)
                         hasUnsavedChanges = false
                         isEditMode = false
                         showDestructiveConfirmDialog = false
-                        coroutineScope.launch { 
-                            snackbarHostState.showSnackbar("AI Engine is processing...") 
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("AI Engine is processing...")
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -1112,17 +1180,17 @@ fun ResultScreen(
         AlertDialog(
             onDismissRequest = { showNewLabelDialog = false },
             title = { Text("New Label") },
-            text = { 
+            text = {
                 OutlinedTextField(
-                    value = newLabelInput, 
-                    onValueChange = { newLabelInput = it }, 
-                    label = { Text("Label Name") }, 
-                    singleLine = true, 
+                    value = newLabelInput,
+                    onValueChange = { newLabelInput = it },
+                    label = { Text("Label Name") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
-                ) 
+                )
             },
             confirmButton = {
-                Button(onClick = {
+                BouncyButton(onClick = {
                     if (newLabelInput.isNotBlank()) {
                         viewModel.toggleLabel(newLabelInput.trim())
                         showNewLabelDialog = false
@@ -1134,10 +1202,27 @@ fun ResultScreen(
         )
     }
 
-    // ============================================================
-    // SIDE PANEL — renovado con secciones, bouncy chips y headers.
-    // Único lugar donde se permite el SingleChoiceSegmentedButtonRow.
-    // ============================================================
+    if (showAudioPicker) {
+        AudioFilePickerSheet(
+            onDismiss = { showAudioPicker = false },
+            onFileSelected = { uri ->
+                showAudioPicker = false
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Replacing audio...")
+                }
+                viewModel.replaceAudio(context, uri) { success ->
+                    coroutineScope.launch {
+                        if (success) {
+                            snackbarHostState.showSnackbar("Audio replaced. Re-processing...")
+                        } else {
+                            snackbarHostState.showSnackbar("Failed to replace audio.")
+                        }
+                    }
+                }
+            }
+        )
+    }
+
     if (showSidePanel && note != null) {
         ModalBottomSheet(
             onDismissRequest = { showSidePanel = false },
@@ -1151,7 +1236,6 @@ fun ResultScreen(
                     .padding(horizontal = 20.dp)
                     .padding(bottom = 24.dp)
             ) {
-                // ---------- LABELS ----------
                 PanelSectionHeader(icon = Icons.Default.Label, title = "Labels")
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -1160,14 +1244,18 @@ fun ResultScreen(
                     items(allLabels.filter { it.isNotBlank() }) { label ->
                         val activeLabels = note!!.label?.split("|")?.map { it.trim() } ?: emptyList()
                         val isSelected = activeLabels.contains(label)
+                        val assignedHex = labelColors[label]
+
+                        val (chipColor, chipTextColor) = resolveLabelColors(assignedHex, isSelected)
+
                         BouncyChip(
                             onClick = { viewModel.toggleLabel(label) },
-                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            containerColor = chipColor,
+                            contentColor = chipTextColor
                         ) {
-                            Icon(Icons.Default.Label, null, tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Label, null, tint = chipTextColor, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text(label, color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                            Text(label, color = chipTextColor, fontWeight = FontWeight.Bold)
                         }
                     }
                     item {
@@ -1185,7 +1273,6 @@ fun ResultScreen(
 
                 SectionSpacer()
 
-                // ---------- FIND & FORMAT ----------
                 PanelSectionHeader(icon = Icons.Default.Search, title = "Find & Format")
                 OutlinedTextField(
                     value = searchHighlightQuery,
@@ -1213,16 +1300,24 @@ fun ResultScreen(
                                 text = line, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.fillMaxWidth().clickable {
-                                    coroutineScope.launch { 
+                                    coroutineScope.launch {
                                         temporaryHighlight = searchHighlightQuery
                                         if (note!!.summary != null) {
-                                            listState.animateScrollToItem(index)
+                                            // Busca la Y del item en el mapa que llena MarkdownText.
+                                            // Si el line index exacto no está, cae al más cercano anterior
+                                            // (los items de bloque como tablas o mermaid ocupan varios
+                                            // line indices en el raw text pero solo uno en el mapa).
+                                            val target = markdownLinePositions[index]
+                                                ?: markdownLinePositions.keys.filter { it <= index }.maxOrNull()?.let { markdownLinePositions[it] }
+                                            if (target != null) {
+                                                markdownScrollState.animateScrollTo(target)
+                                            }
                                         } else {
                                             rawTextScrollState.animateScrollTo(index * 60)
                                         }
                                         showSidePanel = false
                                         delay(4000)
-                                        temporaryHighlight = "" 
+                                        temporaryHighlight = ""
                                     }
                                 }.padding(vertical = 12.dp, horizontal = 8.dp)
                             )
@@ -1233,7 +1328,6 @@ fun ResultScreen(
 
                 SectionSpacer()
 
-                // ---------- READING FONT (selectores viejos permitidos SOLO aquí) ----------
                 PanelSectionHeader(icon = Icons.Default.TextFields, title = "Reading Font")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     SegmentedButton(
@@ -1255,7 +1349,6 @@ fun ResultScreen(
 
                 SectionSpacer()
 
-                // ---------- EXPORT & MEDIA ----------
                 PanelSectionHeader(icon = Icons.Default.Tune, title = "Export & Media")
 
                 if (note!!.audioPath == null) {
@@ -1268,7 +1361,7 @@ fun ResultScreen(
                             Icon(Icons.Default.Info, contentDescription = "Info", tint = MaterialTheme.colorScheme.onSecondaryContainer)
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Audio unavailable. This note was created without saving audio or the file has been moved.",
+                                text = "No audio attached. You can add one from the button below, and Obinot will transcribe and process it.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
@@ -1297,22 +1390,46 @@ fun ResultScreen(
                         }
                     }
 
+                    item {
+                        BouncyCapsule(
+                            onClick = {
+                                showSidePanel = false
+                                showAudioPicker = true
+                            },
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = "Replace audio", tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (note!!.audioPath == null) "Add Audio" else "Replace Audio",
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
                     if (note!!.audioPath != null) {
                         item {
-                            val playInteractionSource = remember { MutableInteractionSource() }
-                            val isPlayPressed by playInteractionSource.collectIsPressedAsState()
-                            val playScale by animateFloatAsState(
-                                targetValue = if (isPlayPressed) 0.92f else 1f,
-                                animationSpec = spring(dampingRatio = 0.62f, stiffness = 1800f),
-                                label = "playScale"
-                            )
+                            val playInteraction = remember { MutableInteractionSource() }
+                            val playScale = remember { Animatable(1f) }
+                            LaunchedEffect(playInteraction) {
+                                playInteraction.interactions.collect { i ->
+                                    when (i) {
+                                        is PressInteraction.Press -> playScale.animateTo(0.92f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium))
+                                        is PressInteraction.Release, is PressInteraction.Cancel -> playScale.animateTo(1f, spring(0.40f, Spring.StiffnessMediumLow))
+                                    }
+                                }
+                            }
                             Box(
                                 modifier = Modifier
-                                    .scale(playScale)
+                                    .graphicsLayer {
+                                        scaleX = playScale.value
+                                        scaleY = playScale.value
+                                    }
                                     .height(48.dp).clip(CircleShape)
                                     .background(if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer)
                                     .clickable(
-                                        interactionSource = playInteractionSource,
+                                        interactionSource = playInteraction,
                                         indication = null,
                                         onClick = { viewModel.toggleAudio() }
                                     )
@@ -1327,7 +1444,7 @@ fun ResultScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        if (isPlaying) "Pause" else "Play", 
+                                        if (isPlaying) "Pause" else "Play",
                                         color = if (isPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                 }
@@ -1336,7 +1453,7 @@ fun ResultScreen(
 
                         item {
                             BouncyCapsule(
-                                onClick = { exportAudioLauncher.launch("Binot_Audio_${note!!.id}.mp4") },
+                                onClick = { exportAudioLauncher.launch("Obinot_Audio_${note!!.id}.mp4") },
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = "Save MP3", tint = MaterialTheme.colorScheme.onSurface)
@@ -1351,7 +1468,7 @@ fun ResultScreen(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val cleanSummaryToCopy = note!!.summary?.replace(Regex("<!--BINOT_META:.*?-->"), "")?.trimEnd()
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Binot Note", cleanSummaryToCopy ?: note!!.rawText))
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Obinot Note", cleanSummaryToCopy ?: note!!.rawText))
                                 coroutineScope.launch { snackbarHostState.showSnackbar("Text Copied!") }
                                 showSidePanel = false
                             },
@@ -1369,9 +1486,9 @@ fun ResultScreen(
                                 viewModel.shareBinotFile(context) { uri, msg ->
                                     if (uri != null) {
                                         val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "application/zip" 
+                                            type = "application/zip"
                                             putExtra(Intent.EXTRA_STREAM, uri)
-                                            putExtra(Intent.EXTRA_TEXT, "Catatan Binot: ${note!!.title}")
+                                            putExtra(Intent.EXTRA_TEXT, "Obinot Note: ${note!!.title}")
                                             flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                                         }
                                         context.startActivity(Intent.createChooser(sendIntent, "Share .binot note via"))
@@ -1406,7 +1523,7 @@ fun ResultScreen(
 }
 
 // ============================================================
-// HELPERS DEL PANEL
+// Helpers locales
 // ============================================================
 
 @Composable
@@ -1439,42 +1556,57 @@ private fun SectionSpacer() {
 }
 
 @Composable
-private fun BouncyChip(
-    onClick: () -> Unit,
-    containerColor: Color,
-    contentColor: Color,
-    content: @Composable RowScope.() -> Unit
+private fun PhoneTranscriptionBanner(
+    onReanalyze: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scaleAnim = remember { Animatable(1f) }
-
-    LaunchedEffect(pressed) {
-        if (pressed) {
-            scaleAnim.animateTo(
-                0.90f,
-                spring(dampingRatio = 0.62f, stiffness = 1800f)
-            )
-        } else {
-            if (scaleAnim.value > 0.96f) {
-                scaleAnim.snapTo(0.94f)
-            }
-            scaleAnim.animateTo(
-                1f,
-                spring(dampingRatio = 0.38f, stiffness = 550f)
-            )
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .scale(scaleAnim.value)
-            .clip(RoundedCornerShape(50))
-            .background(containerColor)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+        ),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, content = content)
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Phone transcription",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+            Text(
+                text = "This is what your phone's built-in recognizer captured live. It's faster but less accurate than the AI engine. If you want a cleaner transcript, re-analyze the saved audio with AI.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f)
+            )
+            BouncyButton(
+                onClick = onReanalyze,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary
+                ),
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Re-analyze with AI", fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
@@ -1544,52 +1676,6 @@ fun buildHighlightedString(
             )
             idx = fullLower.indexOf(queryLower, idx + 1)
         }
-    }
-}
-
-@Composable
-private fun BouncyCapsule(
-    onClick: () -> Unit,
-    containerColor: Color,
-    modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scaleAnim = remember { Animatable(1f) }
-
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            scaleAnim.animateTo(
-                0.88f,
-                spring(dampingRatio = 0.62f, stiffness = 1800f)
-            )
-        } else {
-            if (scaleAnim.value > 0.96f) {
-                scaleAnim.snapTo(0.93f)
-            }
-            scaleAnim.animateTo(
-                1f,
-                spring(dampingRatio = 0.38f, stiffness = 550f)
-            )
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .scale(scaleAnim.value)
-            .height(48.dp)
-            .clip(CircleShape)
-            .background(containerColor)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
 

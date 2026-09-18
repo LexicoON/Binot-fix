@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -13,10 +14,10 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -38,15 +39,17 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -58,10 +61,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Menu
@@ -71,7 +76,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -86,12 +91,16 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -100,11 +109,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.data.LabelEntity
 import com.example.data.NoteEntity
+import com.example.ui.components.BouncyButton
+import com.example.ui.components.BouncyIconButton
 import com.example.ui.components.MarkdownText
+import com.example.ui.components.bouncyClickable
+import com.example.ui.components.observeBouncyPress
+import com.example.ui.theme.isDynamicLabelColor
+import com.example.ui.theme.resolveLabelColors
+import com.example.ui.theme.resolveLabelDotColor
 import com.example.utils.ImportExportHelper
 import com.example.viewmodel.HistoryViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -114,11 +131,6 @@ import java.util.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-// ============================================================
-// Magnetic Swipe State
-// Compartido entre todas las tarjetas de la grilla para que las
-// vecinas "tiren" de la nota que se está arrastrando.
-// ============================================================
 @Stable
 class MagneticSwipeState {
     var activeId by mutableStateOf<Int?>(null)
@@ -134,12 +146,15 @@ fun HistoryScreen(
     sharedTransitionScope: SharedTransitionScope,
     onNoteClick: (Int) -> Unit,
     onTrashClick: () -> Unit,
-    onImportFile: suspend (Uri) -> Int? 
+    onImportFile: suspend (Uri) -> Int?,
+    useNativePicker: Boolean = false
 ) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val notes by viewModel.filteredNotes.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val latestRelease by viewModel.latestRelease.collectAsState()
+    val labelColors by viewModel.labelColors.collectAsState()
 
     val uniqueLabels by viewModel.uniqueLabels.collectAsState()
     val selectedLabels by viewModel.selectedLabels.collectAsState()
@@ -152,23 +167,25 @@ fun HistoryScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showNewLabelDialog by remember { mutableStateOf(false) }
     var newLabelInput by remember { mutableStateOf("") }
+    var newLabelColor by remember { mutableStateOf(LabelEntity.DEFAULT_COLOR) }
 
     var labelBeingManaged by remember { mutableStateOf<String?>(null) }
     var renameLabelInput by remember { mutableStateOf("") }
+    var renameLabelColor by remember { mutableStateOf(LabelEntity.DEFAULT_COLOR) }
     var showDeleteMultipleLabelsDialog by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     var isSearchFocused by remember { mutableStateOf(false) }
 
     val sharedPreferences = remember { context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
-    var isGridView by remember { mutableStateOf(sharedPreferences.getBoolean("is_grid_view", true)) } 
+    var isGridView by remember { mutableStateOf(sharedPreferences.getBoolean("is_grid_view", true)) }
 
     val focusManager = LocalFocusManager.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id -> 
-        notes.find { it.id == id }?.isPinned == true 
+    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id ->
+        notes.find { it.id == id }?.isPinned == true
     }
 
     val pinnedNotes = notes.filter { it.isPinned }
@@ -177,14 +194,13 @@ fun HistoryScreen(
     val gridState = rememberLazyStaggeredGridState()
     val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
 
-    // Shared magnetic swipe state + la lista ordenada de IDs para calcular distancias.
     val swipeState = remember { MagneticSwipeState() }
     val orderedNoteIds = remember(pinnedNotes, unpinnedNotes) {
         pinnedNotes.map { it.id } + unpinnedNotes.map { it.id }
     }
 
     val currentVersion = remember {
-        try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } 
+        try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" }
         catch (e: Exception) { "1.0.0" }
     }
 
@@ -208,8 +224,20 @@ fun HistoryScreen(
         }
     }
 
+    var showNativePickerSheet by remember { mutableStateOf(false) }
+
+    fun launchImportPicker() {
+        if (useNativePicker) {
+            showNativePickerSheet = true
+        } else {
+            importLauncher.launch(arrayOf("*/*"))
+        }
+    }
+
     var isDragHovering by remember { mutableStateOf(false) }
 
+    // Handler de drag & drop. Las URIs se obtienen exclusivamente del clipData,
+    // que es la única fuente que expone la API de DragEvent.
     val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
         object : DragAndDropTarget {
             override fun onStarted(event: DragAndDropEvent) {
@@ -224,40 +252,45 @@ fun HistoryScreen(
                 val androidEvent = event.toAndroidDragEvent()
                 val permission = activity?.requestDragAndDropPermissions(androidEvent)
 
+                val uris = mutableListOf<Uri>()
                 val clipData = androidEvent.clipData
-                if (clipData != null && clipData.itemCount > 0) {
-                    var firstImportedId: Int? = null
-                    var successCount = 0
-                    var failCount = 0
-                    coroutineScope.launch {
-                        for (i in 0 until clipData.itemCount) {
-                            val uri = clipData.getItemAt(i).uri
-                            if (uri != null) {
-                                val newId = onImportFile(uri)
-                                if (newId != null) {
-                                    successCount++
-                                    if (firstImportedId == null) firstImportedId = newId
-                                } else {
-                                    failCount++
-                                }
-                            }
-                        }
-                        permission?.release()
-                        val msg = when {
-                            failCount == 0 && successCount > 1 -> "Imported $successCount files!"
-                            failCount == 0 -> "Imported successfully!"
-                            successCount == 0 -> "Failed to import any files. Ensure format is supported."
-                            else -> "Imported $successCount, failed $failCount."
-                        }
-                        snackbarHostState.showSnackbar(msg)
-                        if (firstImportedId != null && clipData.itemCount == 1) {
-                            onNoteClick(firstImportedId)
+                if (clipData != null) {
+                    for (i in 0 until clipData.itemCount) {
+                        clipData.getItemAt(i).uri?.let { uris.add(it) }
+                    }
+                }
+
+                if (uris.isEmpty()) {
+                    permission?.release()
+                    return false
+                }
+
+                var firstImportedId: Int? = null
+                var successCount = 0
+                var failCount = 0
+                coroutineScope.launch {
+                    for (uri in uris) {
+                        val newId = onImportFile(uri)
+                        if (newId != null) {
+                            successCount++
+                            if (firstImportedId == null) firstImportedId = newId
+                        } else {
+                            failCount++
                         }
                     }
-                    return true
+                    permission?.release()
+                    val msg = when {
+                        failCount == 0 && successCount > 1 -> "Imported $successCount files!"
+                        failCount == 0 -> "Imported successfully!"
+                        successCount == 0 -> "Failed to import any files. Ensure format is supported."
+                        else -> "Imported $successCount, failed $failCount."
+                    }
+                    snackbarHostState.showSnackbar(msg)
+                    if (firstImportedId != null && uris.size == 1) {
+                        onNoteClick(firstImportedId)
+                    }
                 }
-                permission?.release()
-                return false
+                return true
             }
         }
     }
@@ -268,15 +301,15 @@ fun HistoryScreen(
         } else if (selectionMode) {
             selectionMode = false; selectedNotes = emptySet()
         } else if (isSearchFocused) {
-            focusManager.clearFocus() 
+            focusManager.clearFocus()
         } else {
-            viewModel.updateSearchQuery("") 
+            viewModel.updateSearchQuery("")
         }
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = !isTransitioning, 
+        gesturesEnabled = !isTransitioning,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -290,22 +323,26 @@ fun HistoryScreen(
                     Spacer(Modifier.height(24.dp))
                     Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
 
+                    val sortOptions = listOf(
+                        Icons.Default.AccessTime to "Newest",
+                        Icons.Default.History to "Oldest",
+                        Icons.AutoMirrored.Filled.Sort to "A–Z"
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                     ) {
-                        data class SortOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val description: String)
-                        val sortOptions = listOf(
-                            SortOption(androidx.compose.material.icons.Icons.Default.AccessTime, "Newest"),
-                            SortOption(androidx.compose.material.icons.Icons.Default.History, "Oldest"),
-                            SortOption(androidx.compose.material.icons.Icons.AutoMirrored.Default.Sort, "A–Z")
-                        )
-                        sortOptions.forEachIndexed { index, option ->
+                        sortOptions.forEachIndexed { index, (icon, description) ->
                             ToggleButton(
                                 checked = sortMode == index,
-                                onCheckedChange = { viewModel.setSortMode(index) },
+                                onCheckedChange = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.setSortMode(index)
+                                },
                                 modifier = Modifier.weight(1f)
-                            ) { Icon(option.icon, contentDescription = option.description, modifier = Modifier.size(18.dp)) }
+                            ) {
+                                Icon(icon, contentDescription = description, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
 
@@ -324,11 +361,11 @@ fun HistoryScreen(
                             modifier = Modifier.weight(1f)
                         )
                         if (isMultiSelectLabelMode && selectedLabels.isNotEmpty()) {
-                            IconButton(onClick = { showDeleteMultipleLabelsDialog = true }) {
+                            BouncyIconButton(onClick = { showDeleteMultipleLabelsDialog = true }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete Selected Labels", tint = MaterialTheme.colorScheme.error)
                             }
                         }
-                        IconButton(onClick = { viewModel.setMultiSelectLabelMode(!isMultiSelectLabelMode) }) {
+                        BouncyIconButton(onClick = { viewModel.setMultiSelectLabelMode(!isMultiSelectLabelMode) }) {
                             Icon(
                                 Icons.Default.Checklist,
                                 contentDescription = "Toggle Multi-Select",
@@ -349,6 +386,9 @@ fun HistoryScreen(
 
                     uniqueLabels.forEach { label ->
                         val isLabelSelected = label in selectedLabels
+                        val assignedHex = labelColors[label]
+                        val dotColor = resolveLabelDotColor(assignedHex)
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
@@ -367,6 +407,7 @@ fun HistoryScreen(
                                     onLongClick = {
                                         labelBeingManaged = label
                                         renameLabelInput = label
+                                        renameLabelColor = assignedHex ?: LabelEntity.DEFAULT_COLOR
                                     }
                                 )
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -377,18 +418,38 @@ fun HistoryScreen(
                                     onCheckedChange = { viewModel.toggleLabelFilter(label) }
                                 )
                             } else {
-                                Icon(
-                                    Icons.Default.Label,
-                                    contentDescription = null,
-                                    tint = if (isLabelSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(dotColor)
                                 )
                             }
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 label,
                                 color = if (isLabelSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.labelLarge
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
                             )
+                            if (!isMultiSelectLabelMode) {
+                                BouncyIconButton(
+                                    onClick = {
+                                        labelBeingManaged = label
+                                        renameLabelInput = label
+                                        renameLabelColor = assignedHex ?: LabelEntity.DEFAULT_COLOR
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "Edit label and color",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -396,7 +457,12 @@ fun HistoryScreen(
                         label = { Text("Create New Label") },
                         icon = { Icon(Icons.Default.Add, null) },
                         selected = false,
-                        onClick = { showNewLabelDialog = true; coroutineScope.launch { drawerState.close() } },
+                        onClick = {
+                            newLabelInput = ""
+                            newLabelColor = LabelEntity.DEFAULT_COLOR
+                            showNewLabelDialog = true
+                            coroutineScope.launch { drawerState.close() }
+                        },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
 
@@ -405,11 +471,11 @@ fun HistoryScreen(
 
                     NavigationDrawerItem(
                         label = { Text("Trash", color = MaterialTheme.colorScheme.error) },
-                        icon = { Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                        icon = { Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error) },
                         selected = false,
-                        onClick = { 
+                        onClick = {
                             coroutineScope.launch { drawerState.close() }
-                            onTrashClick() 
+                            onTrashClick()
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
@@ -431,87 +497,65 @@ fun HistoryScreen(
                         TopAppBar(
                             title = { Text("${selectedNotes.size} Selected") },
                             navigationIcon = {
-                                IconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) { Icon(Icons.Default.Close, "Cancel") }
+                                BouncyIconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) {
+                                    Icon(Icons.Default.Close, "Cancel")
+                                }
                             },
                             actions = {
-                                IconButton(onClick = { showSelectionMenu = true }) {
+                                BouncyIconButton(onClick = { showSelectionMenu = true }) {
                                     Icon(Icons.Default.MoreVert, contentDescription = "Options")
                                 }
-                                DropdownMenu(
+
+                                SelectionDropdownMenu(
                                     expanded = showSelectionMenu,
-                                    onDismissRequest = { showSelectionMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Select All") },
-                                        leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
-                                        onClick = {
-                                            selectedNotes = notes.map { it.id }.toSet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(if (isAllPinned) "Unpin" else "Pin") },
-                                        leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
-                                        onClick = {
-                                            viewModel.togglePinMultiple(selectedNotes, !isAllPinned)
-                                            selectionMode = false
-                                            selectedNotes = emptySet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Clone") },
-                                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                                        onClick = {
-                                            viewModel.cloneMultiple(selectedNotes)
-                                            selectionMode = false
-                                            selectedNotes = emptySet()
-                                            showSelectionMenu = false
-                                        }
-                                    )
-
-                                    if (selectedNotes.size == 1) {
-                                        DropdownMenuItem(
-                                            text = { Text("Share") },
-                                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                                            onClick = {
-                                                val noteId = selectedNotes.first()
-                                                val noteToShare = notes.find { it.id == noteId }
-
-                                                if (noteToShare != null) {
-                                                    coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar("Generating .binot file...")
-                                                        val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
-                                                        if (uri != null) {
-                                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "application/zip" 
-                                                                putExtra(Intent.EXTRA_STREAM, uri)
-                                                                putExtra(Intent.EXTRA_TEXT, "Binot Note: ${noteToShare.title}")
-                                                                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                            }
-                                                            context.startActivity(Intent.createChooser(sendIntent, "Share .binot note via"))
-                                                        } else {
-                                                            snackbarHostState.showSnackbar("Failed to generate file.")
-                                                        }
+                                    onDismissRequest = { showSelectionMenu = false },
+                                    isAllPinned = isAllPinned,
+                                    selectedCount = selectedNotes.size,
+                                    onSelectAll = {
+                                        selectedNotes = notes.map { it.id }.toSet()
+                                        showSelectionMenu = false
+                                    },
+                                    onTogglePin = {
+                                        viewModel.togglePinMultiple(selectedNotes, !isAllPinned)
+                                        selectionMode = false
+                                        selectedNotes = emptySet()
+                                        showSelectionMenu = false
+                                    },
+                                    onClone = {
+                                        viewModel.cloneMultiple(selectedNotes)
+                                        selectionMode = false
+                                        selectedNotes = emptySet()
+                                        showSelectionMenu = false
+                                    },
+                                    onShare = {
+                                        val noteId = selectedNotes.firstOrNull()
+                                        val noteToShare = noteId?.let { id -> notes.find { it.id == id } }
+                                        if (noteToShare != null) {
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Generating .binot file...")
+                                                val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
+                                                if (uri != null) {
+                                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "application/zip"
+                                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                                        putExtra(Intent.EXTRA_TEXT, "Binot Note: ${noteToShare.title}")
+                                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                                                     }
+                                                    context.startActivity(Intent.createChooser(sendIntent, "Share .binot note via"))
+                                                } else {
+                                                    snackbarHostState.showSnackbar("Failed to generate file.")
                                                 }
-
-                                                selectionMode = false
-                                                selectedNotes = emptySet()
-                                                showSelectionMenu = false
                                             }
-                                        )
-                                    }
-
-                                    DropdownMenuItem(
-                                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                                        onClick = {
-                                            showDeleteDialog = true
-                                            showSelectionMenu = false
                                         }
-                                    )
-                                }
+                                        selectionMode = false
+                                        selectedNotes = emptySet()
+                                        showSelectionMenu = false
+                                    },
+                                    onDelete = {
+                                        showDeleteDialog = true
+                                        showSelectionMenu = false
+                                    }
+                                )
                             },
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                         )
@@ -530,8 +574,8 @@ fun HistoryScreen(
                                 }
                             },
                             isGridView = isGridView,
-                            onToggleViewClick = { 
-                                isGridView = !isGridView 
+                            onToggleViewClick = {
+                                isGridView = !isGridView
                                 sharedPreferences.edit().putBoolean("is_grid_view", isGridView).apply()
                             },
                             modifier = Modifier.animateEnterExit(
@@ -550,19 +594,14 @@ fun HistoryScreen(
                             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                             label = "fabCorner"
                         )
-                        val interactionSource = remember { MutableInteractionSource() }
-                        val pressed by interactionSource.collectIsPressedAsState()
-                        val fabScale by animateFloatAsState(
-                            targetValue = if (pressed) 0.90f else 1f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            ),
-                            label = "fabScale"
-                        )
+                        val fabInteractionSource = remember { MutableInteractionSource() }
+                        val fabScale = remember { Animatable(1f) }
+                        LaunchedEffect(fabInteractionSource) {
+                            observeBouncyPress(fabInteractionSource, fabScale, pressedScale = 0.92f)
+                        }
 
                         FloatingActionButton(
-                            onClick = { importLauncher.launch(arrayOf("*/*")) },
+                            onClick = { launchImportPicker() },
                             shape = RoundedCornerShape(corner),
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -572,10 +611,14 @@ fun HistoryScreen(
                                 focusedElevation = 0.dp,
                                 hoveredElevation = 0.dp
                             ),
-                            interactionSource = interactionSource,
+                            interactionSource = fabInteractionSource,
                             modifier = Modifier
                                 .renderInSharedTransitionScopeOverlay(zIndexInOverlay = 1f)
                                 .alpha(if (animatedVisibilityScope.transition.targetState == EnterExitState.Visible) 1f else 0f)
+                                .graphicsLayer {
+                                    scaleX = fabScale.value
+                                    scaleY = fabScale.value
+                                }
                                 .then(
                                     with(animatedVisibilityScope) {
                                         Modifier.animateEnterExit(
@@ -587,7 +630,6 @@ fun HistoryScreen(
                                         )
                                     }
                                 )
-                                .scale(fabScale)
                                 .animateContentSize(
                                     animationSpec = spring(
                                         dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -623,10 +665,14 @@ fun HistoryScreen(
                     .padding(innerPadding)
                     .dragAndDropTarget(
                         shouldStartDragAndDrop = { event ->
-                            event.mimeTypes().any { mimeType ->
+                            val types = event.mimeTypes()
+                            types.isEmpty() ||
+                            types.any { mimeType ->
                                 mimeType.startsWith("audio/") ||
                                 mimeType == "application/zip" ||
-                                mimeType == "application/octet-stream"
+                                mimeType == "application/octet-stream" ||
+                                mimeType.startsWith("application/") ||
+                                mimeType == "*/*"
                             }
                         },
                         target = dragAndDropCallback
@@ -662,12 +708,13 @@ fun HistoryScreen(
                                     item(span = StaggeredGridItemSpan.FullLine) {
                                         Text("Pinned", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp))
                                     }
-                                    items(pinnedNotes, key = { it.id }) { note ->
+                                    staggeredItems(pinnedNotes, key = { it.id }) { note ->
                                         DismissibleNoteCard(
                                             note = note,
                                             modifier = Modifier.animateItem(),
                                             isSelected = selectedNotes.contains(note.id),
                                             selectedLabels = selectedLabels,
+                                            labelColors = labelColors,
                                             selectionMode = selectionMode,
                                             sharedTransitionScope = sharedTransitionScope,
                                             animatedVisibilityScope = animatedVisibilityScope,
@@ -676,10 +723,10 @@ fun HistoryScreen(
                                             snackbarHostState = snackbarHostState,
                                             swipeState = swipeState,
                                             orderedNoteIds = orderedNoteIds,
-                                            onSelect = { 
-                                                if (selectionMode) { 
-                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
-                                                    if (selectedNotes.isEmpty()) selectionMode = false 
+                                            onSelect = {
+                                                if (selectionMode) {
+                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id
+                                                    if (selectedNotes.isEmpty()) selectionMode = false
                                                 } else { onNoteClick(note.id) }
                                             },
                                             onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
@@ -691,12 +738,13 @@ fun HistoryScreen(
                                     item(span = StaggeredGridItemSpan.FullLine) {
                                         Text("Collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 4.dp))
                                     }
-                                    items(unpinnedNotes, key = { it.id }) { note ->
+                                    staggeredItems(unpinnedNotes, key = { it.id }) { note ->
                                         DismissibleNoteCard(
                                             note = note,
                                             modifier = Modifier.animateItem(),
                                             isSelected = selectedNotes.contains(note.id),
                                             selectedLabels = selectedLabels,
+                                            labelColors = labelColors,
                                             selectionMode = selectionMode,
                                             sharedTransitionScope = sharedTransitionScope,
                                             animatedVisibilityScope = animatedVisibilityScope,
@@ -705,10 +753,10 @@ fun HistoryScreen(
                                             snackbarHostState = snackbarHostState,
                                             swipeState = swipeState,
                                             orderedNoteIds = orderedNoteIds,
-                                            onSelect = { 
-                                                if (selectionMode) { 
-                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id 
-                                                    if (selectedNotes.isEmpty()) selectionMode = false 
+                                            onSelect = {
+                                                if (selectionMode) {
+                                                    selectedNotes = if (selectedNotes.contains(note.id)) selectedNotes - note.id else selectedNotes + note.id
+                                                    if (selectedNotes.isEmpty()) selectionMode = false
                                                 } else { onNoteClick(note.id) }
                                             },
                                             onLongSelect = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } }
@@ -763,31 +811,59 @@ fun HistoryScreen(
                         }
                     }
                 }
-            } 
+            }
         }
+    }
+
+    if (showNativePickerSheet) {
+        com.example.ui.components.ObinotFilePickerSheet(
+            onDismiss = { showNativePickerSheet = false },
+            onFileSelected = { uri ->
+                showNativePickerSheet = false
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Importing file...")
+                    val newId = onImportFile(uri)
+                    if (newId != null) {
+                        onNoteClick(newId)
+                    } else {
+                        snackbarHostState.showSnackbar("Failed to import file! Ensure the format is supported.")
+                    }
+                }
+            }
+        )
     }
 
     if (showNewLabelDialog) {
         AlertDialog(
             onDismissRequest = { showNewLabelDialog = false },
             title = { Text("Create New Label") },
-            text = { 
-                OutlinedTextField(
-                    value = newLabelInput, 
-                    onValueChange = { newLabelInput = it }, 
-                    label = { Text("Label Name") }, 
-                    singleLine = true, 
-                    modifier = Modifier.fillMaxWidth()
-                ) 
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedTextField(
+                        value = newLabelInput,
+                        onValueChange = { newLabelInput = it },
+                        label = { Text("Label Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Color", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    LabelColorPicker(
+                        selectedHex = newLabelColor,
+                        onSelect = { newLabelColor = it }
+                    )
+                }
             },
             confirmButton = {
-                Button(onClick = {
-                    if (newLabelInput.isNotBlank()) {
-                        viewModel.createIndependentLabel(newLabelInput.trim())
-                        showNewLabelDialog = false
-                        newLabelInput = ""
+                BouncyButton(
+                    onClick = {
+                        if (newLabelInput.isNotBlank()) {
+                            viewModel.createIndependentLabel(newLabelInput.trim(), newLabelColor)
+                            showNewLabelDialog = false
+                            newLabelInput = ""
+                            newLabelColor = LabelEntity.DEFAULT_COLOR
+                        }
                     }
-                }) { Text("Create Label") }
+                ) { Text("Create") }
             },
             dismissButton = { TextButton(onClick = { showNewLabelDialog = false }) { Text("Cancel") } }
         )
@@ -798,13 +874,18 @@ fun HistoryScreen(
             onDismissRequest = { labelBeingManaged = null },
             title = { Text("Edit Label") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     OutlinedTextField(
                         value = renameLabelInput,
                         onValueChange = { renameLabelInput = it },
                         label = { Text("Label Name") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Color", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    LabelColorPicker(
+                        selectedHex = renameLabelColor,
+                        onSelect = { renameLabelColor = it }
                     )
                     TextButton(
                         onClick = {
@@ -821,13 +902,20 @@ fun HistoryScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val oldLabel = labelBeingManaged
-                    if (oldLabel != null && renameLabelInput.isNotBlank() && renameLabelInput.trim() != oldLabel) {
-                        viewModel.renameLabel(oldLabel, renameLabelInput.trim())
+                BouncyButton(
+                    onClick = {
+                        val oldLabel = labelBeingManaged
+                        if (oldLabel != null) {
+                            if (renameLabelInput.isNotBlank() && renameLabelInput.trim() != oldLabel) {
+                                viewModel.renameLabel(oldLabel, renameLabelInput.trim())
+                                viewModel.setLabelColor(renameLabelInput.trim(), renameLabelColor)
+                            } else {
+                                viewModel.setLabelColor(oldLabel, renameLabelColor)
+                            }
+                        }
+                        labelBeingManaged = null
                     }
-                    labelBeingManaged = null
-                }) { Text("Save") }
+                ) { Text("Save") }
             },
             dismissButton = {
                 TextButton(onClick = { labelBeingManaged = null }) { Text("Cancel") }
@@ -889,7 +977,7 @@ fun HistoryScreen(
                 override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
             }
         }
-        val updateListState = rememberLazyListState()
+        val updateScrollState = rememberScrollState()
 
         ModalBottomSheet(
             onDismissRequest = { viewModel.dismissUpdateNotification() },
@@ -913,12 +1001,12 @@ fun HistoryScreen(
                 Box(modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.4f), RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                     .nestedScroll(scrollWall)
                 ) {
                     MarkdownText(
                         text = latestRelease!!.body ?: "Performance improvements and new features.",
-                        listState = updateListState,
+                        scrollState = updateScrollState,
                         highlightsInfo = null,
                         onSavedHighlightClick = { _, _, _, _, _ -> },
                         onResolveSelection = { null },
@@ -934,13 +1022,101 @@ fun HistoryScreen(
                 OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestRelease!!.html_url))); viewModel.dismissUpdateNotification() }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("View on GitHub") }
                 Spacer(modifier = Modifier.height(24.dp))
             }
-        } 
+        }
     }
 }
 
-// ============================================================
-// DismissibleNoteCard con Magnetic Swipe
-// ============================================================
+@Composable
+private fun SelectionDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    isAllPinned: Boolean,
+    selectedCount: Int,
+    onSelectAll: () -> Unit,
+    onTogglePin: () -> Unit,
+    onClone: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest
+    ) {
+        DropdownMenuItem(
+            text = { Text("Select All") },
+            leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
+            onClick = onSelectAll
+        )
+        DropdownMenuItem(
+            text = { Text(if (isAllPinned) "Unpin" else "Pin") },
+            leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
+            onClick = onTogglePin
+        )
+        DropdownMenuItem(
+            text = { Text("Clone") },
+            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+            onClick = onClone
+        )
+        if (selectedCount == 1) {
+            DropdownMenuItem(
+                text = { Text("Share") },
+                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                onClick = onShare
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            onClick = onDelete
+        )
+    }
+}
+
+@Composable
+private fun LabelColorPicker(
+    selectedHex: String,
+    onSelect: (String) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(vertical = 4.dp)
+    ) {
+        items(LabelEntity.FULL_PALETTE) { hex ->
+            val dynamic = isDynamicLabelColor(hex)
+            val color = if (dynamic) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                try { Color(AndroidColor.parseColor(hex)) } catch (e: Exception) { Color.Gray }
+            }
+            val isSelected = if (dynamic) isDynamicLabelColor(selectedHex)
+                             else selectedHex.equals(hex, ignoreCase = true)
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(color)
+                    .border(
+                        width = if (isSelected) 3.dp else 0.dp,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                        shape = CircleShape
+                    )
+                    .clickable { onSelect(hex) },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = if (color.luminance() > 0.5f) Color(0xFF1A1A1A) else Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun DismissibleNoteCard(
@@ -948,6 +1124,7 @@ fun DismissibleNoteCard(
     modifier: Modifier = Modifier,
     isSelected: Boolean,
     selectedLabels: Set<String>,
+    labelColors: Map<String, String>,
     selectionMode: Boolean,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
@@ -968,25 +1145,20 @@ fun DismissibleNoteCard(
 
     val isActive = swipeState.activeId == note.id
 
-    // Distancia en el listado global para calcular el factor de arrastre magnético.
     val myIndex = remember(orderedNoteIds, note.id) { orderedNoteIds.indexOf(note.id) }
     val activeIndex = remember(orderedNoteIds, swipeState.activeId) {
         swipeState.activeId?.let { orderedNoteIds.indexOf(it) } ?: -1
     }
     val distance = if (myIndex == -1 || activeIndex == -1) 0 else abs(myIndex - activeIndex)
 
-    // Magnetic decay: la nota activa usa su offset directo; las vecinas
-    // reciben un porcentaje decreciente con la distancia al cuadrado.
-    // 0.30f hace que el vecino inmediato se sienta claramente.
     val neighborFactor = when {
         isActive -> 1f
         distance == 0 -> 0f
         else -> (1f / (distance.toFloat() * distance.toFloat())) * 0.30f
     }
 
-    // Offset objetivo para las notas NO activas (las activas usan localOffsetX directo).
     val neighborTarget = swipeState.dragX * neighborFactor
-    val animatedNeighborOffset by animateFloatAsState(
+    val animatedNeighborOffset by androidx.compose.animation.core.animateFloatAsState(
         targetValue = neighborTarget,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
@@ -1008,7 +1180,6 @@ fun DismissibleNoteCard(
     val alignment = if (displayOffset > 0) Alignment.CenterStart else Alignment.CenterEnd
 
     Box(modifier = modifier.fillMaxWidth()) {
-        // Fondo de borrar (solo se pinta para la nota activa)
         Box(
             Modifier
                 .fillMaxSize()
@@ -1038,12 +1209,9 @@ fun DismissibleNoteCard(
                                 swipeState.activeId = note.id
                             }
                             val progress = (abs(localOffsetX) / maxOffsetPx).coerceIn(0f, 1f)
-                            // Fricción estilo Pixel: la resistencia crece cuadráticamente
-                            // con la distancia, así el dedo siente que jala un elástico.
                             val resistance = 1f - progress * progress * 0.85f
                             localOffsetX = (localOffsetX + delta * resistance)
                                 .coerceIn(-maxOffsetPx, maxOffsetPx)
-                            // Propagar al resto de las tarjetas.
                             swipeState.dragX = localOffsetX
                         },
                         onDragStopped = { velocity ->
@@ -1059,13 +1227,11 @@ fun DismissibleNoteCard(
                                             dampingRatio = 0.70f,
                                             stiffness = Spring.StiffnessMedium
                                         )
-                                    ) { value, _ -> 
+                                    ) { value, _ ->
                                         localOffsetX = value
                                         swipeState.dragX = value
                                     }
 
-                                    // Liberar a las vecinas: activeId = null hace que
-                                    // el target del factor sea 0 y reboten de vuelta.
                                     swipeState.activeId = null
                                     swipeState.dragX = 0f
 
@@ -1084,7 +1250,6 @@ fun DismissibleNoteCard(
                                     }
                                 }
                             } else {
-                                // Rebote elástico de vuelta al centro + liberar vecinas.
                                 scope.launch {
                                     animate(
                                         initialValue = currentOffset,
@@ -1093,7 +1258,7 @@ fun DismissibleNoteCard(
                                             dampingRatio = 0.30f,
                                             stiffness = Spring.StiffnessMediumLow
                                         )
-                                    ) { value, _ -> 
+                                    ) { value, _ ->
                                         localOffsetX = value
                                         swipeState.dragX = value
                                     }
@@ -1108,6 +1273,7 @@ fun DismissibleNoteCard(
                     note = note,
                     isSelected = isSelected,
                     selectedLabels = selectedLabels,
+                    labelColors = labelColors,
                     modifier = Modifier.sharedBounds(
                         sharedContentState = rememberSharedContentState("note-${note.id}"),
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -1133,7 +1299,7 @@ fun MorphingSearchBar(
     onMenuClick: () -> Unit,
     isGridView: Boolean,
     onToggleViewClick: () -> Unit,
-    modifier: Modifier = Modifier 
+    modifier: Modifier = Modifier
 ) {
     val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
@@ -1151,12 +1317,12 @@ fun MorphingSearchBar(
             .padding(horizontal = outerHorizontalPadding)
     ) {
         AnimatedVisibility(
-            visible = !isFocused, 
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
+            visible = !isFocused,
+            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()),
             exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
         ) {
-            IconButton(onClick = onMenuClick) { 
-                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.onSurfaceVariant) 
+            BouncyIconButton(onClick = onMenuClick) {
+                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
@@ -1170,7 +1336,7 @@ fun MorphingSearchBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(start = 16.dp, end = 16.dp, top = innerTopPadding, bottom = 12.dp)
-                    .defaultMinSize(minHeight = 48.dp) 
+                    .defaultMinSize(minHeight = 48.dp)
             ) {
                 Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.width(12.dp))
@@ -1193,16 +1359,16 @@ fun MorphingSearchBar(
         }
 
         AnimatedVisibility(
-            visible = !isFocused, 
-            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()), 
+            visible = !isFocused,
+            enter = expandHorizontally(animationSpec = spring()) + fadeIn(animationSpec = spring()),
             exit = shrinkHorizontally(animationSpec = spring()) + fadeOut(animationSpec = spring())
         ) {
-            IconButton(onClick = onToggleViewClick) { 
+            BouncyIconButton(onClick = onToggleViewClick) {
                 Icon(
-                    imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView, 
-                    contentDescription = "Toggle View Mode", 
+                    imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView,
+                    contentDescription = "Toggle View Mode",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
-                ) 
+                )
             }
         }
     }
@@ -1214,6 +1380,7 @@ fun NoteCard(
     note: NoteEntity,
     isSelected: Boolean = false,
     selectedLabels: Set<String> = emptySet(),
+    labelColors: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier,
     onLongClick: () -> Unit = {},
     onClick: () -> Unit = {},
@@ -1222,6 +1389,12 @@ fun NoteCard(
     val formatter = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
     val rawDisplayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else null
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val cardScale = remember { Animatable(1f) }
+    LaunchedEffect(interactionSource) {
+        observeBouncyPress(interactionSource, cardScale, pressedScale = 0.97f)
+    }
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -1229,10 +1402,19 @@ fun NoteCard(
         ),
         border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = modifier
+            .graphicsLayer {
+                scaleX = cardScale.value
+                scaleY = cardScale.value
+            }
             .fillMaxWidth()
             .heightIn(max = 320.dp)
             .clip(RoundedCornerShape(16.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             if (!note.label.isNullOrBlank()) {
@@ -1240,16 +1422,26 @@ fun NoteCard(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     labels.forEach { label ->
                         val isLabelActive = label in selectedLabels
+                        val assignedHex = labelColors[label]
+
+                        val (chipColor, chipContentColor) = resolveLabelColors(assignedHex, isLabelActive)
+
                         Box(
                             modifier = Modifier
-                                .background(if (isLabelActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f), RoundedCornerShape(50))
+                                .background(chipColor, RoundedCornerShape(50))
                                 .clickable { onLabelClick(label) }
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Label, null, tint = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(12.dp))
+                                Icon(Icons.Default.Label, null, tint = chipContentColor, modifier = Modifier.size(12.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text(label, style = MaterialTheme.typography.labelSmall, color = if (isLabelActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = chipContentColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }

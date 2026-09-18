@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -17,8 +16,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,7 +31,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GraphicEq
@@ -42,8 +38,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
@@ -64,7 +60,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.example.ui.components.BouncyButton
+import com.example.ui.components.BouncyOutlinedButton
+import com.example.ui.components.bouncyClickable
 import com.example.viewmodel.SettingsViewModel
 import com.example.viewmodel.UpdateState
 import kotlinx.coroutines.launch
@@ -72,84 +70,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@Composable
-private fun BouncyButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    colors: ButtonColors = ButtonDefaults.buttonColors(),
-    content: @Composable RowScope.() -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scaleAnim = remember { Animatable(1f) }
-
-    LaunchedEffect(pressed) {
-        if (pressed) {
-            scaleAnim.animateTo(
-                0.85f,
-                spring(dampingRatio = 0.62f, stiffness = 1800f)
-            )
-        } else {
-            // Tap rápido: si nunca bajó de 0.96, forzamos un squish visible.
-            if (scaleAnim.value > 0.96f) {
-                scaleAnim.snapTo(0.92f)
-            }
-            scaleAnim.animateTo(
-                1f,
-                spring(dampingRatio = 0.38f, stiffness = 550f)
-            )
-        }
-    }
-
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        shapes = ButtonDefaults.shapes(),
-        colors = colors,
-        interactionSource = interactionSource,
-        modifier = modifier.scale(scaleAnim.value),
-        content = content
-    )
-}
-
-@Composable
-private fun BouncyOutlinedButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable RowScope.() -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scaleAnim = remember { Animatable(1f) }
-
-    LaunchedEffect(pressed) {
-        if (pressed) {
-            scaleAnim.animateTo(
-                0.88f,
-                spring(dampingRatio = 0.62f, stiffness = 1800f)
-            )
-        } else {
-            if (scaleAnim.value > 0.96f) {
-                scaleAnim.snapTo(0.94f)
-            }
-            scaleAnim.animateTo(
-                1f,
-                spring(dampingRatio = 0.38f, stiffness = 550f)
-            )
-        }
-    }
-
-    OutlinedButton(
-        onClick = onClick,
-        enabled = enabled,
-        shapes = ButtonDefaults.shapes(),
-        interactionSource = interactionSource,
-        modifier = modifier.scale(scaleAnim.value),
-        content = content
-    )
-}
+// ============================================================
+// Toggle groups locales
+// ============================================================
 
 @Composable
 private fun ExpressiveToggleGroup(
@@ -194,6 +117,153 @@ private fun ExpressiveToggleGroup(
     }
 }
 
+// ============================================================
+// Selector genérico "fila con valor actual + hoja de selección".
+// ============================================================
+@Composable
+private fun SettingsSelectorRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsSelectionSheet(
+    title: String,
+    options: List<String>,
+    selected: String,
+    searchable: Boolean = true,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    ModalBottomSheet(
+        onDismissRequest = { onDismiss(); query = "" },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f).padding(horizontal = 16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            if (searchable) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                )
+            }
+            val filtered = if (searchable) options.filter { it.contains(query, ignoreCase = true) } else options
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                items(filtered) { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                onSelect(option)
+                                query = ""
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = option, style = MaterialTheme.typography.bodyLarge)
+                        if (option == selected) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Insignia "BETA" reutilizable. El título que acompaña a esta insignia SIEMPRE
+ * debe llevar `Modifier.weight(1f, fill = false)` + `maxLines = 1` +
+ * `overflow = TextOverflow.Ellipsis`, para que Compose reserve el tamaño natural
+ * de la insignia antes de repartir lo que sobra al título.
+ */
+@Composable
+private fun BetaBadge() {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.tertiaryContainer
+    ) {
+        Text(
+            "BETA",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+        )
+    }
+}
+
+@Composable
+private fun TextToggleGroup(
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    labels: List<String>,
+    modifier: Modifier = Modifier
+) {
+    val haptics = LocalHapticFeedback.current
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+    ) {
+        labels.forEachIndexed { index, label ->
+            ToggleButton(
+                checked = selectedIndex == index,
+                onCheckedChange = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onSelect(index)
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (selectedIndex == index) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -207,19 +277,22 @@ fun SettingsScreen(
     val geminiApiKey by viewModel.apiKey.collectAsState()
     val groqApiKey by viewModel.groqApiKey.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
-    val recordMode by viewModel.recordMode.collectAsState() 
-    val aiProvider by viewModel.aiProvider.collectAsState() 
+    val recordMode by viewModel.recordMode.collectAsState()
+    val aiProvider by viewModel.aiProvider.collectAsState()
     val backgroundRecordingEnabled by viewModel.backgroundRecordingEnabled.collectAsState()
+    val liveTranscriptEnabled by viewModel.liveTranscriptEnabled.collectAsState()
+    val autoCompressionMode by viewModel.autoCompressionMode.collectAsState()
+    val nativePickerEnabled by viewModel.nativePickerEnabled.collectAsState()
+    val colorStyle by viewModel.colorStyle.collectAsState()
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { /* If denied, the background recording toggle still works — the OS just won't show the ongoing notification. */ }
+    ) { /* If denied, toggle still works; OS just won't show notification. */ }
 
-    // AI Preferences State (Actual Saved Data)
     val aiLanguage by viewModel.aiLanguage.collectAsState()
     val aiTask by viewModel.aiTask.collectAsState()
     val aiFormat by viewModel.aiFormat.collectAsState()
 
-    // Temporary State (Prevents auto-save if user navigates away)
     var tempAiLanguage by remember(aiLanguage) { mutableStateOf(aiLanguage) }
     var tempAiTask by remember(aiTask) { mutableStateOf(aiTask) }
     var tempAiFormat by remember(aiFormat) { mutableStateOf(aiFormat) }
@@ -229,12 +302,10 @@ fun SettingsScreen(
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val latestVersionStr by viewModel.latestVersionStr.collectAsState()
 
-    // Input States
     var nameInput by remember(userName) { mutableStateOf(userName) }
     var geminiKeyInput by remember(geminiApiKey) { mutableStateOf(geminiApiKey) }
     var groqKeyInput by remember(groqApiKey) { mutableStateOf(groqApiKey) }
 
-    // Dirty Flags
     var isNameDirty by remember { mutableStateOf(false) }
     var isGeminiKeyDirty by remember { mutableStateOf(false) }
     var isGroqKeyDirty by remember { mutableStateOf(false) }
@@ -243,16 +314,19 @@ fun SettingsScreen(
     var showAiInfoDialog by remember { mutableStateOf(false) }
     var showTaskInfoDialog by remember { mutableStateOf(false) }
     var showFormatInfoDialog by remember { mutableStateOf(false) }
+    var showCompressionInfoDialog by remember { mutableStateOf(false) }
+    var showColorInfoDialog by remember { mutableStateOf(false) }
     var showWarningDialog by remember { mutableStateOf(false) }
     var pendingModeSelection by remember { mutableStateOf(-1) }
     var showApplyAllDialog by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
+    var showColorPaletteSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
 
     val supportedLanguages = listOf(
-        "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)", 
-        "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese", 
-        "Italian", "Hindi", "Bengali", "Urdu", "Turkish", "Vietnamese", "Thai", 
+        "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
+        "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese",
+        "Italian", "Hindi", "Bengali", "Urdu", "Turkish", "Vietnamese", "Thai",
         "Dutch", "Polish", "Swedish", "Malay"
     ).sorted()
 
@@ -272,11 +346,29 @@ fun SettingsScreen(
         uri?.let { viewModel.importBackup(context, it) { msg -> coroutineScope.launch { snackbarHostState.showSnackbar(msg) } } }
     }
 
+    // ============================================================
+    // Info dialogs
+    // ============================================================
+
     if (showInfoDialog) {
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
             title = { Text("Recording Modes") },
-            text = { Text("Fast:\nFaster, battery efficient, moderate accuracy. Real-time transcription. Original audio is NOT SAVED on your device.\n\nAccurate:\nHigher accuracy, requires internet. Transcription processes later when you open the note. Live transcription is disabled. Original audio is SAVED on your device.") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Fast Mode", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Uses your phone's built-in speech recognition. Fast and battery-efficient, but accuracy varies by device and language. Audio is not saved.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Accurate Mode", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Records the full audio and sends it to the AI (Gemini or Groq) for accurate transcription. Requires an internet connection and processes when you open the note. Audio is saved on your device.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
             confirmButton = { TextButton(onClick = { showInfoDialog = false }) { Text("Got it") } }
         )
     }
@@ -285,7 +377,27 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showAiInfoDialog = false },
             title = { Text("AI Providers") },
-            text = { Text("Google Gemini:\nBest for complex content such as math, chemistry, and Mermaid diagrams. Supports long audio files.\n\nGroq AI (Recommended):\nBlazing fast and ideal for daily use. Audio uploads are limited to 25 MB.") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Google Gemini", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Best for complex content: math, chemistry, and Mermaid diagrams. Handles very long audio files without size limits. Generous free tier.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Groq AI", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Blazing fast, ideal for daily use. Powered by open-source models. Audio uploads are limited to 25 MB per file.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Dynamic (Beta)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Automatically picks the best provider for each task, so both free quotas last longer. Requires both API keys to be set. Renamed from \"Mix\" — same feature.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
             confirmButton = { TextButton(onClick = { showAiInfoDialog = false }) { Text("Got it") } }
         )
     }
@@ -295,11 +407,25 @@ fun SettingsScreen(
             onDismissRequest = { showTaskInfoDialog = false },
             title = { Text("Processing Tasks") },
             text = {
-                Text(
-                    "Tidy Up:\nFixes typos, grammar, and removes filler words. Preserves your original meaning and tone. Best for cleaning up rough drafts.\n\n" +
-                    "Summary:\nExtracts the core information into a concise summary. Best for long notes where you just want the key points.\n\n" +
-                    "Analyze:\nIdentifies main points, underlying sentiments, and any action items or decisions. Best for meeting notes or study material."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Tidy Up", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Fixes typos, grammar, and removes filler words. Preserves your original meaning and tone. Best for cleaning up rough drafts.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Summary", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Extracts the core information into a concise summary. Best for long notes where you just want the key points.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Analyze", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Identifies main points, underlying sentiments, and any action items or decisions. Best for meeting notes or study material.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             },
             confirmButton = { TextButton(onClick = { showTaskInfoDialog = false }) { Text("Got it") } }
         )
@@ -310,13 +436,77 @@ fun SettingsScreen(
             onDismissRequest = { showFormatInfoDialog = false },
             title = { Text("Output Formats") },
             text = {
-                Text(
-                    "Paragraphs:\nContinuous prose with headings. Best for reading and for content that flows naturally (essays, journals, stories).\n\n" +
-                    "Bullets:\nShort, scannable points organized by heading. Best for quick reference, action items, and structured data.\n\n" +
-                    "Tip: Combine Tidy Up + Bullets for clean checklists. Combine Summary + Paragraphs for a readable executive summary."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Paragraphs", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Continuous prose with subheadings. Best for reading and content that flows naturally (essays, journals, stories).",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Bullets", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Short, scannable points organized by heading. Best for quick reference, action items, and structured data.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Tip: Combine Tidy Up + Bullets for clean checklists. Combine Summary + Paragraphs for a readable executive summary.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             },
             confirmButton = { TextButton(onClick = { showFormatInfoDialog = false }) { Text("Got it") } }
+        )
+    }
+
+    if (showCompressionInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showCompressionInfoDialog = false },
+            title = { Text("Auto Compression") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "When audio exceeds an API's size limit, Obinot can compress it automatically before uploading. This makes long recordings work with providers that have tight limits.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Off", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("No compression. Files over 25 MB will fail on Groq.", style = MaterialTheme.typography.bodyMedium)
+                    Text("Balanced (24 MB)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Best quality. Minimal compression, targets just under the limit.", style = MaterialTheme.typography.bodyMedium)
+                    Text("Maximum (15 MB)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Smaller files, still great for voice. Useful for slow connections.", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Tip: Gemini has no size limit. If you have Gemini configured, you can keep Auto Compression off for maximum audio quality.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { showCompressionInfoDialog = false }) { Text("Got it") } }
+        )
+    }
+
+    if (showColorInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showColorInfoDialog = false },
+            title = { Text("Color Palette") },
+            text = {
+                Text(
+                    "Material 3 generates a full color scheme from a seed. Each style shifts the mood while keeping contrast and accessibility.\n\n" +
+                    "• Tonal Spot: balanced, the Material default.\n" +
+                    "• Vibrant: more saturated, livelier.\n" +
+                    "• Expressive: higher contrast, bold accents.\n" +
+                    "• Fruit Salad: colorful, three distinct hue families.\n" +
+                    "• Neutral: soft, muted colors with low saturation.\n" +
+                    "• Fidelity: keeps the seed color close to the source.\n" +
+                    "• Monochrome: grayscale, no color at all.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = { TextButton(onClick = { showColorInfoDialog = false }) { Text("Got it") } }
         )
     }
 
@@ -368,55 +558,34 @@ fun SettingsScreen(
     }
 
     if (showLanguageSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showLanguageSheet = false; languageSearchQuery = "" },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f).padding(horizontal = 16.dp)) {
-                Text(
-                    text = "Select Language",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                OutlinedTextField(
-                    value = languageSearchQuery,
-                    onValueChange = { languageSearchQuery = it },
-                    label = { Text("Search Language...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-                )
-
-                val filteredLanguages = supportedLanguages.filter { 
-                    it.contains(languageSearchQuery, ignoreCase = true) 
-                }
-
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    items(filteredLanguages) { lang ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    tempAiLanguage = lang
-                                    showLanguageSheet = false
-                                    languageSearchQuery = ""
-                                }
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = lang, style = MaterialTheme.typography.bodyLarge)
-                            if (lang == tempAiLanguage) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
+        SettingsSelectionSheet(
+            title = "Select Language",
+            options = supportedLanguages,
+            selected = tempAiLanguage,
+            searchable = true,
+            onDismiss = { showLanguageSheet = false },
+            onSelect = { lang ->
+                tempAiLanguage = lang
+                showLanguageSheet = false
             }
-        }
+        )
+    }
+
+    if (showColorPaletteSheet) {
+        val styles = com.example.ui.theme.ColorStyle.entries
+        val currentLabel = styles.getOrElse(colorStyle) { com.example.ui.theme.ColorStyle.TONAL_SPOT }.label
+        SettingsSelectionSheet(
+            title = "Color Palette",
+            options = styles.map { it.label },
+            selected = currentLabel,
+            searchable = false,
+            onDismiss = { showColorPaletteSheet = false },
+            onSelect = { label ->
+                val index = styles.indexOfFirst { it.label == label }.coerceAtLeast(0)
+                viewModel.saveColorStyle(index)
+                showColorPaletteSheet = false
+            }
+        )
     }
 
     Scaffold(
@@ -440,12 +609,13 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(safeTopMargin + 4.dp))
 
                 Text(
-                    text = "Settings", 
+                    text = "Settings",
                     style = MaterialTheme.typography.displaySmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
+                // ---------- Personalization ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -454,22 +624,22 @@ fun SettingsScreen(
                         Text("Personalization", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
-                            value = nameInput, 
-                            onValueChange = { 
+                            value = nameInput,
+                            onValueChange = {
                                 nameInput = it
-                                isNameDirty = true 
-                            }, 
-                            label = { Text("Your Name") }, 
+                                isNameDirty = true
+                            },
+                            label = { Text("Your Name") },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         BouncyButton(
-                            onClick = { 
+                            onClick = {
                                 viewModel.saveUserName(nameInput)
-                                isNameDirty = false 
-                                coroutineScope.launch { snackbarHostState.showSnackbar("Name saved successfully!") } 
-                            }, 
-                            enabled = isNameDirty, 
+                                isNameDirty = false
+                                coroutineScope.launch { snackbarHostState.showSnackbar("Name saved successfully!") }
+                            },
+                            enabled = isNameDirty,
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Save Name")
@@ -477,6 +647,7 @@ fun SettingsScreen(
                     }
                 }
 
+                // ---------- Global AI Preferences ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -485,31 +656,15 @@ fun SettingsScreen(
                         Text("Global AI Preferences", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         Text("Notes will be automatically processed using these settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
 
-                        // Output Language Selector
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .clickable { showLanguageSheet = true }
-                                .padding(16.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Language, contentDescription = "Language", tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text("Output Language", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                    Text(tempAiLanguage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        SettingsSelectorRow(
+                            icon = Icons.Default.Language,
+                            label = "Output Language",
+                            value = tempAiLanguage,
+                            onClick = { showLanguageSheet = true }
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // AI Task
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
@@ -537,7 +692,6 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // AI Format
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
@@ -568,7 +722,7 @@ fun SettingsScreen(
                         BouncyButton(
                             onClick = { showApplyAllDialog = true },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = isChanged 
+                            enabled = isChanged
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
@@ -577,6 +731,7 @@ fun SettingsScreen(
                     }
                 }
 
+                // ---------- AI Configuration ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -597,7 +752,7 @@ fun SettingsScreen(
                         ExpressiveToggleGroup(
                             selectedIndex = tempAiProvider,
                             onSelect = { tempAiProvider = it },
-                            labels = listOf("Gemini", "Groq", "Mix (Beta)"),
+                            labels = listOf("Gemini", "Groq", "Dynamic"),
                             icons = listOf(
                                 Icons.Default.AutoAwesome,
                                 Icons.Default.Bolt,
@@ -613,42 +768,42 @@ fun SettingsScreen(
                                 0 -> {
                                     Column {
                                         OutlinedTextField(
-                                            value = geminiKeyInput, 
-                                            onValueChange = { 
+                                            value = geminiKeyInput,
+                                            onValueChange = {
                                                 geminiKeyInput = it
-                                                isGeminiKeyDirty = true 
-                                            }, 
-                                            label = { Text("Gemini API Key") }, 
-                                            visualTransformation = PasswordVisualTransformation(), 
+                                                isGeminiKeyDirty = true
+                                            },
+                                            label = { Text("Gemini API Key") },
+                                            visualTransformation = PasswordVisualTransformation(),
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Text("Click here to get the API Key", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/app/apikey"))) })
                                         Spacer(modifier = Modifier.height(12.dp))
                                         BouncyButton(
-                                            onClick = { 
+                                            onClick = {
                                                 viewModel.saveApiKey(geminiKeyInput)
                                                 viewModel.saveAiProvider(tempAiProvider)
                                                 isGeminiKeyDirty = false
-                                                coroutineScope.launch { snackbarHostState.showSnackbar("Gemini Configuration saved!") } 
-                                            }, 
+                                                coroutineScope.launch { snackbarHostState.showSnackbar("Gemini Configuration saved!") }
+                                            },
                                             enabled = isGeminiKeyDirty || tempAiProvider != aiProvider,
                                             modifier = Modifier.align(Alignment.End)
-                                        ) { 
-                                            Text("Save Key") 
+                                        ) {
+                                            Text("Save Key")
                                         }
                                     }
                                 }
                                 1 -> {
                                     Column {
                                         OutlinedTextField(
-                                            value = groqKeyInput, 
-                                            onValueChange = { 
+                                            value = groqKeyInput,
+                                            onValueChange = {
                                                 groqKeyInput = it
-                                                isGroqKeyDirty = true 
-                                            }, 
-                                            label = { Text("Groq API Key") }, 
-                                            visualTransformation = PasswordVisualTransformation(), 
+                                                isGroqKeyDirty = true
+                                            },
+                                            label = { Text("Groq API Key") },
+                                            visualTransformation = PasswordVisualTransformation(),
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                         Spacer(modifier = Modifier.height(8.dp))
@@ -674,17 +829,33 @@ fun SettingsScreen(
                                         val groqKey = groqKeyInput
                                         val bothConfigured = geminiKey.isNotBlank() && groqKey.isNotBlank()
 
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "Dynamic",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            BetaBadge()
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+
                                         Text(
-                                            text = "Mix (Beta) automatically picks the best provider for each task:",
+                                            text = "Dynamic automatically picks the best provider for each task, so both free quotas last longer.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Text(
-                                            text = "• Short audio (<25MB) → Groq Whisper (fastest)\n" +
-                                                    "• Long audio → Gemini (no size limit)\n" +
-                                                    "• Tidy / Summary / Analyze → Gemini Flash (1M context)\n" +
-                                                    "• Titles & explanations → Groq gpt-oss (fastest)",
+                                            text = "• Short audio (<20MB) → Groq Whisper (fastest)\n" +
+                                                    "• Long audio (≥20MB) → Gemini (no size limit)\n" +
+                                                    "• Long text → Gemini Flash (better context)\n" +
+                                                    "• Short text → alternates between providers\n" +
+                                                    "• Titles & explanations → alternates between providers",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -709,8 +880,8 @@ fun SettingsScreen(
                                                 viewModel.saveAiProvider(tempAiProvider)
                                                 coroutineScope.launch {
                                                     snackbarHostState.showSnackbar(
-                                                        if (bothConfigured) "Mix (Beta) enabled!"
-                                                        else "Mix enabled, but you need both API keys to work properly."
+                                                        if (bothConfigured) "Dynamic mode enabled!"
+                                                        else "Dynamic enabled, but you need both API keys to work properly."
                                                     )
                                                 }
                                             },
@@ -726,6 +897,7 @@ fun SettingsScreen(
                     }
                 }
 
+                // ---------- Recording Mode ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -761,9 +933,50 @@ fun SettingsScreen(
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        // Live Transcript solo aplica a Accurate. En Fast el recognizer
+                        // ES la grabación (no hay audio que transcribir después), así que
+                        // el toggle no tiene sentido ahí.
+                        if (recordMode == 1) {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "Live Transcript",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        BetaBadge()
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "Shows your phone's live speech-to-text while recording. Faster feedback, but the recognizer fails or freezes on many devices. When off, only the audio is recorded and the AI transcribes it later.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Switch(
+                                    checked = liveTranscriptEnabled,
+                                    onCheckedChange = { viewModel.saveLiveTranscript(it) }
+                                )
+                            }
+                        }
                     }
                 }
 
+                // ---------- Record in Background ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -777,11 +990,12 @@ fun SettingsScreen(
                                 Text("Record in Background", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    "Keep recording with the screen off or the app minimized. Shows a notification with the elapsed time while it's active.",
+                                    "Keep recording with the screen off or the app minimized. Shows a persistent notification with the elapsed time while it's active.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            Spacer(modifier = Modifier.width(16.dp))
                             Switch(
                                 checked = backgroundRecordingEnabled,
                                 onCheckedChange = { enabled ->
@@ -789,21 +1003,89 @@ fun SettingsScreen(
                                     if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                         notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                                     }
-                                },
-                                thumbContent = if (backgroundRecordingEnabled) {
-                                    {
-                                        Icon(
-                                            imageVector = Icons.Filled.CheckCircle,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(SwitchDefaults.IconSize)
-                                        )
-                                    }
-                                } else null
+                                }
                             )
                         }
                     }
                 }
 
+                // ---------- Native Audio Picker (beta) ----------
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "Native Audio Picker",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    BetaBadge()
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Use Obinot's own audio browser (with duration, size and sorting) instead of the system file picker. Requires permission to read audio on this device.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Switch(
+                                checked = nativePickerEnabled,
+                                onCheckedChange = { viewModel.saveNativePicker(it) }
+                            )
+                        }
+                    }
+                }
+
+                // ---------- Auto Compression ----------
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Auto Compression",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            BetaBadge()
+                            Spacer(modifier = Modifier.weight(1f))
+                            IconButton(onClick = { showCompressionInfoDialog = true }) {
+                                Icon(Icons.Default.Info, contentDescription = "Compression Info", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        Text(
+                            "Reduces audio size automatically when it exceeds an API's limit. Keeps long recordings usable with providers that have tight size caps.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                        )
+                        TextToggleGroup(
+                            selectedIndex = autoCompressionMode,
+                            onSelect = { viewModel.saveAutoCompressionMode(it) },
+                            labels = listOf("Off", "Balanced", "Max"),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // ---------- Appearance ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -826,6 +1108,38 @@ fun SettingsScreen(
                     }
                 }
 
+                // ---------- Color Palette ----------
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Color Palette", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.weight(1f))
+                            IconButton(onClick = { showColorInfoDialog = true }) {
+                                Icon(Icons.Default.Info, contentDescription = "Color Info", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        Text(
+                            "Changes the mood of the whole app. Each style generates a complete color scheme from the same seed.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                        )
+                        SettingsSelectorRow(
+                            icon = Icons.Default.Palette,
+                            label = "Style",
+                            value = com.example.ui.theme.ColorStyle.entries.getOrElse(colorStyle) { com.example.ui.theme.ColorStyle.TONAL_SPOT }.label,
+                            onClick = { showColorPaletteSheet = true }
+                        )
+                    }
+                }
+
+                // ---------- Data & System ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp)
@@ -837,7 +1151,7 @@ fun SettingsScreen(
                             Text("Notes Backup", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                             Row(horizontalArrangement = Arrangement.End) {
                                 BouncyOutlinedButton(onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, modifier = Modifier.padding(end = 8.dp)) { Text("Import") }
-                                BouncyButton(onClick = { exportLauncher.launch("Binot_Backup_${formatter.format(Date())}.binotbak") }) { Text("Backup") }
+                                BouncyButton(onClick = { exportLauncher.launch("Obinot_Backup_${formatter.format(Date())}.binotbak") }) { Text("Backup") }
                             }
                         }
 
@@ -878,49 +1192,16 @@ fun SettingsScreen(
                     }
                 }
 
+                // ---------- Support cards ----------
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/densl"))
-                        context.startActivity(intent)
-                    }
-                ) {
-                    Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocalCafe, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text("Support Development", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                            Text("Donate via Ko-fi", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bouncyClickable {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/LexicoON/Binot-fix"))
+                            context.startActivity(intent)
                         }
-                    }
-                }
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://saweria.co/Densl"))
-                        context.startActivity(intent)
-                    }
-                ) {
-                    Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text("Support Development", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                            Text("Donate via Saweria", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/DENSLnetion/Binot"))
-                        context.startActivity(intent)
-                    }
                 ) {
                     Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)

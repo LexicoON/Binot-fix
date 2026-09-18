@@ -1,6 +1,7 @@
 package com.example.viewmodel
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -9,21 +10,29 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.Content
 import com.example.data.FileData
 import com.example.data.GenerateContentRequest
+import com.example.data.GeminiModels
 import com.example.data.GroqChatRequest
 import com.example.data.GroqMessage
+import com.example.data.GroqModels
+import com.example.data.LabelRepository
 import com.example.data.NoteEntity
 import com.example.data.NoteRepository
 import com.example.data.Part
 import com.example.data.RetrofitClient
 import com.example.data.SettingsRepository
+import com.example.utils.AudioCompressor
+import com.example.utils.AudioRecorderManager
 import com.example.utils.ImportExportHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -37,7 +46,9 @@ import org.json.JSONObject
 class ResultViewModel(
     private val noteId: Int,
     private val noteRepository: NoteRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val labelRepository: LabelRepository,
+    private val appContext: Context
 ) : ViewModel() {
 
     private val _note = MutableStateFlow<NoteEntity?>(null)
@@ -54,15 +65,19 @@ class ResultViewModel(
 
     private var mediaPlayer: MediaPlayer? = null
     private var progressJob: Job? = null
-    
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
-    
+
     private val _playbackProgress = MutableStateFlow(0f)
     val playbackProgress: StateFlow<Float> = _playbackProgress.asStateFlow()
 
     private val _allLabels = MutableStateFlow<List<String>>(emptyList())
     val allLabels: StateFlow<List<String>> = _allLabels.asStateFlow()
+
+    val labelColors: StateFlow<Map<String, String>> = labelRepository.allLabels
+        .map { labels -> labels.associate { it.name to it.colorHex } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _explainResult = MutableStateFlow<String?>(null)
     val explainResult: StateFlow<String?> = _explainResult.asStateFlow()
@@ -79,14 +94,27 @@ class ResultViewModel(
         viewModelScope.launch {
             val fetchedNote = noteRepository.getNoteById(noteId)
             _note.value = fetchedNote
-            
+
             if (fetchedNote != null) {
-                if ((fetchedNote.rawText.isBlank() || fetchedNote.rawText == "Pending Transcription") && fetchedNote.audioPath != null) {
-                    transcribeAudio()
-                } else if (fetchedNote.rawText == "Pending Transcription" && fetchedNote.audioPath == null) {
-                    _error.value = "Failed: Audio file not found. Raw text is pending but no audio path exists."
-                } else if (fetchedNote.rawText.isNotBlank() && fetchedNote.rawText != "Pending Transcription") {
-                    checkAndTriggerAutoProcess(fetchedNote)
+                val rawText = fetchedNote.rawText
+                val hasPhoneMarker = rawText.startsWith(AudioRecorderManager.PHONE_TRANSCRIPTION_MARKER)
+                val isPending = rawText.isBlank() || rawText == AudioRecorderManager.PENDING_TRANSCRIPTION
+
+                when {
+                    // Modo Accurate con texto del teléfono: NO auto-transcribir.
+                    // El usuario decide con el botón "Re-analyze" del banner.
+                    hasPhoneMarker -> { /* nada — la UI maneja */ }
+
+                    // Pendiente de transcripción y hay audio: disparar IA automáticamente.
+                    isPending && fetchedNote.audioPath != null -> transcribeAudio()
+
+                    // Pendiente sin audio: error real.
+                    isPending && fetchedNote.audioPath == null -> {
+                        _error.value = "Failed: Audio file not found. Raw text is pending but no audio path exists."
+                    }
+
+                    // Texto normal: procesar si summary es null.
+                    rawText.isNotBlank() -> checkAndTriggerAutoProcess(fetchedNote)
                 }
             }
         }
@@ -99,7 +127,7 @@ class ResultViewModel(
             val customLabels = systemNote?.rawText?.split("|")?.filter { it.isNotBlank() } ?: emptyList()
             val noteLabels = notes.filter { it.title != "[[BINOT_SYSTEM_LABELS]]" }
                 .flatMap { it.label?.split("|")?.map { l -> l.trim() }?.filter { l -> l.isNotBlank() } ?: emptyList() }
-            
+
             _allLabels.value = (customLabels + noteLabels).distinct().sorted()
         }
     }
@@ -110,11 +138,7 @@ class ResultViewModel(
             val task = settingsRepository.aiTaskFlow.first()
             val format = settingsRepository.aiFormatFlow.first()
             val currentMeta = "<!--BINOT_META:${lang}_${task}_${format}-->"
-            
-            // LOGIKA IMUNITAS (KEBAL AI):
-            // Catatan hanya akan di-proses ulang jika summary BENAR-BENAR KOSONG.
-            // Biarpun meta tag-nya beda (catatan dari teman beda bahasa), sistem akan membiarkannya.
-            // User hanya bisa memproses ulang secara paksa kalau menekan "Restore Original".
+
             if (noteToProcess.summary == null) {
                 val providerForProcessing = settingsRepository.aiProviderFlow.first()
                 processTextAuto(noteToProcess, lang, task, format, currentMeta, providerForProcessing)
@@ -133,7 +157,7 @@ class ResultViewModel(
             _loadingMessage.value = "Generating secure .binot package..."
             val uri = ImportExportHelper.exportNoteToBinot(context, currentNote)
             _isLoading.value = false
-            
+
             if (uri != null) {
                 launch(Dispatchers.Main) { onResult(uri, "File ready!") }
             } else {
@@ -153,14 +177,87 @@ class ResultViewModel(
         val currentNote = _note.value ?: return
         val updatedNote = currentNote.copy(
             rawText = newRawText,
-            originalRawText = null, 
-            summary = null, 
+            originalRawText = null,
+            summary = null,
             timestamp = System.currentTimeMillis()
         )
         _note.value = updatedNote
-        viewModelScope.launch { 
-            noteRepository.update(updatedNote) 
+        viewModelScope.launch {
+            noteRepository.update(updatedNote)
             checkAndTriggerAutoProcess(updatedNote)
+        }
+    }
+
+    /**
+     * Fuerza el re-análisis del audio con la IA, ignorando la transcripción
+     * previa del teléfono. Borra el marcador, setea el estado a pending y
+     * dispara la transcripción con IA.
+     *
+     * Es lo que llama el botón "Re-analyze with AI" del banner cuando la nota
+     * tiene la marca [PHONE_TRANSCRIPTION].
+     */
+    fun reanalyzeWithAI() {
+        val currentNote = _note.value ?: return
+        val hasMarker = currentNote.rawText.startsWith(AudioRecorderManager.PHONE_TRANSCRIPTION_MARKER)
+        val isPending = currentNote.rawText == AudioRecorderManager.PENDING_TRANSCRIPTION
+        if (!hasMarker && !isPending) return
+
+        if (currentNote.audioPath == null) {
+            _error.value = "No audio file to re-analyze."
+            return
+        }
+
+        val updated = currentNote.copy(
+            rawText = AudioRecorderManager.PENDING_TRANSCRIPTION,
+            summary = null,
+            timestamp = System.currentTimeMillis()
+        )
+        _note.value = updated
+        viewModelScope.launch {
+            noteRepository.update(updated)
+            transcribeAudio()
+        }
+    }
+
+    /**
+     * Reemplaza el audio de la nota actual con un nuevo archivo.
+     * Copia el contenido al directorio interno, resetea el summary y dispara
+     * el re-procesamiento (transcripción + análisis).
+     */
+    fun replaceAudio(context: Context, newAudioUri: Uri, onResult: (Boolean) -> Unit) {
+        val currentNote = _note.value
+        if (currentNote == null) {
+            onResult(false); return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val audioDir = File(context.filesDir, "audio_records").apply { mkdirs() }
+                val newFile = File(audioDir, "RECORD_${System.currentTimeMillis()}.mp4")
+                context.contentResolver.openInputStream(newAudioUri)?.use { input ->
+                    newFile.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw Exception("Could not open selected file")
+
+                currentNote.audioPath?.let { oldPath ->
+                    try { File(oldPath).delete() } catch (_: Exception) {}
+                }
+
+                val updated = currentNote.copy(
+                    audioPath = newFile.absolutePath,
+                    rawText = AudioRecorderManager.PENDING_TRANSCRIPTION,
+                    summary = null,
+                    timestamp = System.currentTimeMillis()
+                )
+                _note.value = updated
+                noteRepository.update(updated)
+
+                launch(Dispatchers.Main) {
+                    onResult(true)
+                    transcribeAudio()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                launch(Dispatchers.Main) { onResult(false) }
+            }
         }
     }
 
@@ -192,6 +289,7 @@ class ResultViewModel(
                 } else {
                     noteRepository.insert(NoteEntity(title = "[[BINOT_SYSTEM_LABELS]]", rawText = label, summary = null))
                 }
+                labelRepository.createLabel(label)
             }
             loadAllLabels()
         }
@@ -215,7 +313,6 @@ class ResultViewModel(
 
         if (mediaPlayer == null) {
             try {
-                // LOGIKA ANTI-CRASH: Tangkap error kalau file nggak valid diputar (mencegah Force Close)
                 mediaPlayer = MediaPlayer().apply {
                     setDataSource(path)
                     prepare()
@@ -249,10 +346,10 @@ class ResultViewModel(
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
             while (_isPlaying.value) {
-                mediaPlayer?.let { 
-                    if (it.duration > 0) { 
-                        _playbackProgress.value = it.currentPosition.toFloat() / it.duration.toFloat() 
-                    } 
+                mediaPlayer?.let {
+                    if (it.duration > 0) {
+                        _playbackProgress.value = it.currentPosition.toFloat() / it.duration.toFloat()
+                    }
                 }
                 delay(100)
             }
@@ -280,11 +377,35 @@ class ResultViewModel(
                     sourceFile.inputStream().use { input -> input.copyTo(output) }
                 }
                 launch(Dispatchers.Main) { onResult("Audio exported successfully!") }
-            } catch (e: Exception) { 
-                launch(Dispatchers.Main) { onResult("Failed to export audio: ${e.message}") } 
+            } catch (e: Exception) {
+                launch(Dispatchers.Main) { onResult("Failed to export audio: ${e.message}") }
             }
         }
     }
+
+    // ============================================================
+    // MIX ROUTING
+    // ============================================================
+
+    private enum class MixTask {
+        SHORT_AUDIO, LONG_AUDIO, SHORT_TEXT, LONG_TEXT, TITLE, EXPLAIN
+    }
+
+    private suspend fun pickProviderForMix(task: MixTask): Int {
+        return when (task) {
+            MixTask.LONG_AUDIO -> 0
+            MixTask.SHORT_AUDIO -> 1
+            MixTask.LONG_TEXT -> 0
+            MixTask.SHORT_TEXT, MixTask.TITLE, MixTask.EXPLAIN -> {
+                val counter = settingsRepository.incrementMixCounter()
+                if (counter % 2 == 0) 0 else 1
+            }
+        }
+    }
+
+    // ============================================================
+    // EXPLAIN
+    // ============================================================
 
     fun explainText(selectedText: String, deviceLanguage: String) {
         _isExplaining.value = true
@@ -295,11 +416,14 @@ class ResultViewModel(
                 val provider = settingsRepository.aiProviderFlow.first()
                 val geminiKey = settingsRepository.geminiApiKeyFlow.first()
                 val groqKey = settingsRepository.groqApiKeyFlow.first()
-                // MIX (provider == 2): explanations use Groq (fast for short tasks)
-                val effectiveProviderForExplain: Int = if (provider == 2) 1 else provider
-                val apiKey = if (effectiveProviderForExplain == 1) groqKey else geminiKey
+
+                val effectiveProvider = if (provider == 2) {
+                    pickProviderForMix(MixTask.EXPLAIN)
+                } else provider
+
+                val apiKey = if (effectiveProvider == 1) groqKey else geminiKey
                 val targetLanguage = settingsRepository.aiLanguageFlow.first()
-                
+
                 if (apiKey.isBlank()) {
                     launch(Dispatchers.Main) {
                         _explainResult.value = "API Key is missing. Please set it in Settings."
@@ -321,35 +445,39 @@ class ResultViewModel(
                        - CORRECT: `${'$'}x=1${'$'}`
                        If you desperately need to bold a mathematical variable, YOU MUST use pure LaTeX: `${'$'}\mathbf{x}=1${'$'}`. NEVER wrap LaTeX blocks in quotes.
                 """.trimIndent()
-                
-                if (provider == 1) {
+
+                if (effectiveProvider == 1) {
                     systemPrompt += """
-                        
+
                         [GROQ/LLAMA OVERRIDES]
                         7. STRICT MATH ISOLATION: Keep math symbols inside `${'$'}${'$'}` strictly in Latin/Greek/Numbers. DO NOT put Arabic, Chinese, Korean, or any non-Latin translations INSIDE the math block. Put translated text OUTSIDE.
                         8. MERMAID ALLOWED: You are ALLOWED and ENCOURAGED to use ` ```mermaid ` blocks for diagrams. Do not avoid backticks for diagrams.
                     """.trimIndent()
                 }
-                
+
                 val userPrompt = "Term to explain: \"$selectedText\""
 
-                val resultText = if (effectiveProviderForExplain == 1) { // Groq
+                val resultText = if (effectiveProvider == 1) {
                     val request = GroqChatRequest(
-                        model = "openai/gpt-oss-120b",
+                        model = GroqModels.GPT_OSS_120B,
                         messages = listOf(
                             GroqMessage(role = "system", content = systemPrompt),
                             GroqMessage(role = "user", content = userPrompt)
                         )
                     )
                     RetrofitClient.groqService.generateContent("Bearer $apiKey", request).choices?.firstOrNull()?.message?.content
-                } else { // Gemini
+                } else {
                     val request = GenerateContentRequest(
                         systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
                         contents = listOf(Content(parts = listOf(Part(text = userPrompt))))
                     )
-                    RetrofitClient.service.generateContent(apiKey, request).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    RetrofitClient.service.generateContent(
+                        model = GeminiModels.FLASH_LITE,
+                        apiKey = apiKey,
+                        request = request
+                    ).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 }
-                
+
                 launch(Dispatchers.Main) {
                     _explainResult.value = resultText?.trim() ?: "Failed to generate explanation. Empty response."
                     _isExplaining.value = false
@@ -366,6 +494,10 @@ class ResultViewModel(
     fun clearExplainResult() {
         _explainResult.value = null
     }
+
+    // ============================================================
+    // HIGHLIGHTS
+    // ============================================================
 
     fun saveHighlightNote(highlightText: String, noteText: String, lineIndex: Int = -1, startIndex: Int = -1, endIndex: Int = -1) {
         val currentNote = _note.value ?: return
@@ -427,10 +559,14 @@ class ResultViewModel(
         } catch (e: Exception) { e.printStackTrace() }
     }
 
+    // ============================================================
+    // TRANSCRIBE
+    // ============================================================
+
     private fun transcribeAudio() {
         val currentNote = _note.value ?: return
         val audioPath = currentNote.audioPath ?: return
-        
+
         _isLoading.value = true
         _error.value = null
 
@@ -444,56 +580,126 @@ class ResultViewModel(
                     _error.value = "API Key is required to transcribe accurate audio. Please set it in Settings."
                     _isLoading.value = false
                 }
-                return@launch 
+                return@launch
             }
 
             var remoteFileName: String? = null
+            var compressedFile: File? = null
             try {
-                val file = File(audioPath)
-                if (!file.exists()) throw Exception("Audio file missing from device storage.")
+                val originalFile = File(audioPath)
+                if (!originalFile.exists()) throw Exception("Audio file missing from device storage.")
 
                 var transcript: String? = null
+                var fileToUpload = originalFile
 
-                // MIX (provider == 2): best tool for the job.
-                // Audio corto -> Groq Whisper (rapido). Audio largo -> Gemini (sin limite).
-                val effectiveProviderForTranscription: Int = if (provider == 2) {
-                    if (file.length() > 25 * 1024 * 1024) 0 else 1
+                // FIX: antes, en Mix cualquier archivo > 20 MB se mandaba directo a Gemini,
+                // así que la compresión NUNCA se ejecutaba en Mix. Ahora, si Auto Compression
+                // está activa y el bitrate necesario es aceptable, Mix se queda en Groq y
+                // comprime; solo cae a Gemini si comprimir arruinaría el audio o falla.
+                val compressionModeForRouting = settingsRepository.autoCompressionModeFlow.first()
+                var effectiveProvider: Int = if (provider == 2) {
+                    val fits = originalFile.length() <= 20 * 1024 * 1024
+                    val compressible = compressionModeForRouting > 0 &&
+                        AudioCompressor.calculateTargetBitrate(
+                            getAudioDurationMs(originalFile),
+                            if (compressionModeForRouting == 1) 24.0 else 15.0
+                        ) != null
+                    if (fits || compressible) 1 else 0
                 } else provider
-                val apiKey = if (effectiveProviderForTranscription == 1) groqKey else geminiKey
 
-                if (effectiveProviderForTranscription == 1) { // GROQ PROCESSING
-                    if (file.length() > 25 * 1024 * 1024) {
-                        launch(Dispatchers.Main) {
-                            _error.value = "File is too large for Groq (Max 25MB). Please switch to Gemini in Settings to process long audio files."
-                            _isLoading.value = false
+                if (effectiveProvider == 1 && originalFile.length() > 24 * 1024 * 1024) {
+                    val compressionMode = settingsRepository.autoCompressionModeFlow.first()
+                    if (compressionMode > 0) {
+                        val targetSizeMB = if (compressionMode == 1) 24.0 else 15.0
+                        val durationMs = getAudioDurationMs(originalFile)
+                        val targetBitrate = AudioCompressor.calculateTargetBitrate(durationMs, targetSizeMB)
+                        if (targetBitrate != null) {
+                            launch(Dispatchers.Main) { _loadingMessage.value = "Compressing audio..." }
+                            val tempFile = File(appContext.cacheDir, "compressed_${System.currentTimeMillis()}.mp4")
+                            when (val result = AudioCompressor.compress(originalFile, tempFile, targetBitrate) { percent ->
+                                launch(Dispatchers.Main) { _loadingMessage.value = "Compressing audio... $percent%" }
+                            }) {
+                                is AudioCompressor.Result.Success -> {
+                                    fileToUpload = result.outputFile
+                                    compressedFile = result.outputFile
+                                }
+                                is AudioCompressor.Result.QualityTooLow -> {
+                                    if (provider == 2) {
+                                        effectiveProvider = 0
+                                    } else {
+                                        launch(Dispatchers.Main) {
+                                            _error.value = "Audio is too long for Groq. Switch to Gemini or enable Auto Compression."
+                                            _isLoading.value = false
+                                        }
+                                        return@launch
+                                    }
+                                }
+                                is AudioCompressor.Result.Failure -> {
+                                    if (provider == 2) {
+                                        effectiveProvider = 0
+                                    } else {
+                                        launch(Dispatchers.Main) {
+                                            _error.value = "Audio compression failed."
+                                            _isLoading.value = false
+                                        }
+                                        return@launch
+                                    }
+                                }
+                            }
+                        } else {
+                            if (provider == 2) {
+                                effectiveProvider = 0
+                            } else {
+                                launch(Dispatchers.Main) {
+                                    _error.value = "Audio is too long for Groq. Switch to Gemini or enable Auto Compression."
+                                    _isLoading.value = false
+                                }
+                                return@launch
+                            }
                         }
-                        return@launch
+                    } else {
+                        if (provider == 2) {
+                            effectiveProvider = 0
+                        } else {
+                            launch(Dispatchers.Main) {
+                                _error.value = "File exceeds Groq's 25MB limit. Enable Auto Compression or switch to Gemini."
+                                _isLoading.value = false
+                            }
+                            return@launch
+                        }
                     }
+                }
 
-                    launch(Dispatchers.Main) { _loadingMessage.value = "Transcribing blazingly fast with Groq..." }
-                    
-                    val requestFile = file.asRequestBody("audio/mp4".toMediaTypeOrNull())
-                    val body = MultipartBody.Part.createFormData("file", file.name, requestFile)
-                    val model = "whisper-large-v3-turbo".toRequestBody("text/plain".toMediaTypeOrNull())
+                val apiKey = if (effectiveProvider == 1) groqKey else geminiKey
+
+                if (effectiveProvider == 1) {
+                    launch(Dispatchers.Main) { _loadingMessage.value = "Transcribing with Groq..." }
+
+                    val requestFile = fileToUpload.asRequestBody("audio/mp4".toMediaTypeOrNull())
+                    val body = MultipartBody.Part.createFormData("file", fileToUpload.name, requestFile)
+                    val model = GroqModels.WHISPER.toRequestBody("text/plain".toMediaTypeOrNull())
                     val format = "json".toRequestBody("text/plain".toMediaTypeOrNull())
-                    
+
                     val response = RetrofitClient.groqService.transcribeAudio("Bearer $apiKey", body, model, format)
                     transcript = response.text?.trim()
-
-                } else { // GEMINI PROCESSING
-                    launch(Dispatchers.Main) { _loadingMessage.value = "Uploading audio to Google secure server..." }
+                } else {
+                    launch(Dispatchers.Main) { _loadingMessage.value = "Uploading audio to Google..." }
                     val mimeType = "audio/mp4"
-                    val requestBody = file.asRequestBody(mimeType.toMediaTypeOrNull())
+                    val requestBody = fileToUpload.asRequestBody(mimeType.toMediaTypeOrNull())
                     val uploadResponse = RetrofitClient.service.uploadFile(
-                        apiKey = apiKey, contentLength = file.length(), contentType = mimeType, mimeType = mimeType, fileBytes = requestBody
+                        apiKey = apiKey,
+                        contentLength = fileToUpload.length(),
+                        contentType = mimeType,
+                        mimeType = mimeType,
+                        fileBytes = requestBody
                     )
                     if (uploadResponse.file == null) throw Exception("Failed to upload file to Gemini server.")
-                    
+
                     val uploadedFileUri = uploadResponse.file.uri
                     remoteFileName = uploadResponse.file.name
 
                     launch(Dispatchers.Main) { _loadingMessage.value = "Audio uploaded. Gemini is processing..." }
-                    
+
                     val systemPrompt = """
                         You are a highly accurate audio transcription AI. Your ONLY task is to transcribe the audio exactly word-for-word.
                         
@@ -502,15 +708,15 @@ class ResultViewModel(
                         2. VERBATIM TRANSCRIBE: Transcribe exactly what is spoken word-by-word, including informal words, repeated words, and natural speech flow.
                         3. KEEP PUNCTUATION & CAPITALIZATION: You MUST add accurate punctuation (periods, commas, question marks) and use proper capitalization to make it readable.
                         4. NO GRAMMAR CORRECTION: Absolutely DO NOT fix the speaker's grammatical errors or restructure their sentences.
-                        5. NO MARKDOWN & NO MATH FORMATTING: DO NOT add Markdown styling. DO NOT convert spoken math, numbers, or symbols into LaTeX format. Write them as plain text (e.g., write "two squared" or "dua pangkat tiga", do not use ², ^, ${'$'}, or ${'$'}${'$'}).
+                        5. NO MARKDOWN & NO MATH FORMATTING: DO NOT add Markdown styling. DO NOT convert spoken math, numbers, or symbols into LaTeX format. Write them as plain text.
                         6. Automatically detect and transcribe in the spoken language.
                     """.trimIndent()
-                    
+
                     val request = GenerateContentRequest(
                         systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
                         contents = listOf(Content(parts = listOf(Part(fileData = FileData(mimeType = mimeType, fileUri = uploadedFileUri)))))
                     )
-                    
+
                     var fileState = uploadResponse.file.state
                     var attempts = 0
                     while (fileState == "PROCESSING" && attempts < 60) {
@@ -520,7 +726,11 @@ class ResultViewModel(
                     }
                     if (fileState != "ACTIVE") throw Exception("File processing timeout or failed at Google server.")
 
-                    val response = RetrofitClient.service.generateContent(apiKey, request)
+                    val response = RetrofitClient.service.generateContent(
+                        model = GeminiModels.FLASH,
+                        apiKey = apiKey,
+                        request = request
+                    )
                     transcript = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
                 }
 
@@ -530,17 +740,6 @@ class ResultViewModel(
                         _note.value = updatedNote
                         noteRepository.update(updatedNote)
 
-                        // Title generation and summarization used to fire as two independent,
-                        // uncoordinated coroutines here. That caused two problems:
-                        // 1) In Mix mode they always hit two different providers (Groq for title,
-                        //    Gemini for summary) at the exact same moment with zero backpressure,
-                        //    which is the most likely trigger for the "works alone, fails together"
-                        //    503s some of you saw only in Mix.
-                        // 2) Whichever finished last called note.copy(...) on its OWN stale snapshot
-                        //    of the note (taken before the other one wrote its result), silently
-                        //    erasing whatever the other one had just saved (title vs summary race).
-                        // Fix: run title generation first and AWAIT it, then hand the up-to-date
-                        // note (now containing the title) into the summarization step.
                         launch(Dispatchers.IO) {
                             var noteWithTitle = updatedNote
                             try {
@@ -562,21 +761,36 @@ class ResultViewModel(
                         }
                     } else if (transcript?.contains("[No speech detected]") == true) {
                         _error.value = "No clear speech detected in the audio recording."
-                    } else { 
-                        _error.value = "AI failed to process the transcript. Server response was empty." 
+                    } else {
+                        _error.value = "AI failed to process the transcript. Server response was empty."
                     }
                     _isLoading.value = false
                 }
-            } catch (e: Exception) { 
-                launch(Dispatchers.Main) { 
+            } catch (e: Exception) {
+                launch(Dispatchers.Main) {
                     _error.value = handleExceptionError(e)
-                    _isLoading.value = false 
-                } 
+                    _isLoading.value = false
+                }
             } finally {
                 if (provider == 0 && remoteFileName != null) {
                     try { RetrofitClient.service.deleteFile(remoteFileName, geminiKey) } catch (e: Exception) { e.printStackTrace() }
                 }
+                compressedFile?.let {
+                    try { it.delete() } catch (_: Exception) {}
+                }
             }
+        }
+    }
+
+    private fun getAudioDurationMs(file: File): Long {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(file.absolutePath)
+            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever.release()
+            durationStr?.toLongOrNull() ?: 0L
+        } catch (e: Exception) {
+            0L
         }
     }
 
@@ -587,27 +801,32 @@ class ResultViewModel(
         """.trimIndent()
         val userPrompt = "Teks:\n${transcript.take(500)}"
 
-        // MIX (provider == 2): titles use Groq (fast, lightweight)
-        val effectiveProviderForTitle: Int = if (provider == 2) 1 else provider
-        val apiKey = if (effectiveProviderForTitle == 1) groqKey else geminiKey
+        val effectiveProvider = if (provider == 2) {
+            pickProviderForMix(MixTask.TITLE)
+        } else provider
+        val apiKey = if (effectiveProvider == 1) groqKey else geminiKey
 
-        val aiTitle = if (effectiveProviderForTitle == 1) { // Groq
+        val aiTitle = if (effectiveProvider == 1) {
             val request = GroqChatRequest(
-                model = "openai/gpt-oss-20b",
+                model = GroqModels.GPT_OSS_20B,
                 messages = listOf(
                     GroqMessage(role = "system", content = systemPrompt),
                     GroqMessage(role = "user", content = userPrompt)
                 )
             )
             RetrofitClient.groqService.generateContent("Bearer $apiKey", request).choices?.firstOrNull()?.message?.content?.trim()
-        } else { // Gemini
+        } else {
             val request = GenerateContentRequest(
                 systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
                 contents = listOf(Content(parts = listOf(Part(text = userPrompt))))
             )
-            RetrofitClient.service.generateContent(apiKey, request).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+            RetrofitClient.service.generateContent(
+                model = GeminiModels.FLASH_LITE,
+                apiKey = apiKey,
+                request = request
+            ).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
         }
-        
+
         if (!aiTitle.isNullOrBlank()) {
             val finalNote = note.copy(title = aiTitle)
             _note.value = finalNote
@@ -617,6 +836,10 @@ class ResultViewModel(
         return null
     }
 
+    // ============================================================
+    // TEXT PROCESSING
+    // ============================================================
+
     private fun processTextAuto(currentNote: NoteEntity, language: String, task: Int, format: Int, metaTag: String, provider: Int) {
         _isLoading.value = true
         _error.value = null
@@ -625,32 +848,35 @@ class ResultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val provider = settingsRepository.aiProviderFlow.first()
-                // MIX (provider == 2): text processing always uses Gemini (better for long context)
-                val effectiveProviderForProcessing: Int = if (provider == 2) 0 else provider
-                val apiKey = if (effectiveProviderForProcessing == 1) settingsRepository.groqApiKeyFlow.first() else settingsRepository.geminiApiKeyFlow.first()
-                
-                if (apiKey.isBlank()) { 
+
+                val effectiveProvider = if (provider == 2) {
+                    val taskType = if (currentNote.rawText.length > 600) MixTask.LONG_TEXT else MixTask.SHORT_TEXT
+                    pickProviderForMix(taskType)
+                } else provider
+
+                val apiKey = if (effectiveProvider == 1) settingsRepository.groqApiKeyFlow.first() else settingsRepository.geminiApiKeyFlow.first()
+
+                if (apiKey.isBlank()) {
                     launch(Dispatchers.Main) {
                         _error.value = "AI Engine Requires an API Key. Please configure it in Settings."
                         _isLoading.value = false
                     }
-                    return@launch 
+                    return@launch
                 }
 
                 val taskInstruction = when (task) {
-                    0 -> "Task: STRICT PROOFREADING (TIDY UP). Fix typos, grammar, and remove filler words. Preserve the exact original meaning and tone. DO NOT add outside facts. If it's a multi-sentence text, divide it logically into sections."
+                    0 -> "Task: TIDY UP. Fix typos, grammar, and remove filler words/false starts. Be precise. But do NOT flatten the speaker's voice into generic corporate or robotic prose — keep their natural tone, word choices, and register exactly as it was (casual stays casual, formal stays formal, funny stays funny). You're cleaning up how it was said, not rewriting who said it. DO NOT add outside facts. If it's a multi-sentence text, divide it logically into sections."
                     1 -> "Task: SUMMARIZE. Extract the core information and make a concise summary. Ignore filler words. Keep it under 30% of the original length."
                     2 -> "Task: ANALYZE. Extract the main points, underlying sentiments, and any action items or decisions."
-                    else -> "Task: STRICT PROOFREADING (TIDY UP)."
+                    else -> "Task: TIDY UP."
                 }
 
                 val formatInstruction = when (format) {
-                    0 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Do not output a flat wall of text. Use PARAGRAPHS for the details under each heading. DO NOT use bullet points. Use **bold** for key concepts, *italic* for emphasis, and > for quotes. DO NOT wrap text in quotes."
-                    1 -> "Format: MANDATORY: You MUST structure the text using a Main Title (#) and logical Subheadings (##). Use BULLET POINTS ('-') for the details under each heading. NEVER use asterisks ('*'). Use **bold** for key concepts."
+                    0 -> "Format: MANDATORY: You MUST structure the text using logical Subheadings (##) only. DO NOT generate a Main Title (#) — it is already set separately. Start directly with the first Subheading. Do not output a flat wall of text. Use PARAGRAPHS for the details under each heading. DO NOT use bullet points. Use **bold** for key concepts, *italic* for emphasis, and > for quotes. DO NOT wrap text in quotes."
+                    1 -> "Format: MANDATORY: You MUST structure the text using logical Subheadings (##) only. DO NOT generate a Main Title (#) — it is already set separately. Start directly with the first Subheading. Use BULLET POINTS ('-') for the details under each heading. NEVER use asterisks ('*'). Use **bold** for key concepts."
                     else -> ""
                 }
 
-                // Hint opcional que conecta task con format para evitar ambigüedad
                 val taskFormatHint = when {
                     task == 0 && format == 1 -> "Hint: When tidying up into bullets, each bullet should be one complete thought. Don't split a single sentence across multiple bullets."
                     task == 1 && format == 0 -> "Hint: When summarizing into paragraphs, write 2-4 short paragraphs maximum. Each paragraph should cover one main theme."
@@ -658,13 +884,9 @@ class ResultViewModel(
                     else -> ""
                 }
 
-                // Gemini and Groq get their own fully independent system prompts now instead of
-                // one shared string with a Groq-only patch bolted on top. Edit one freely without
-                // touching the other's behavior. They only get combined/mixed in Mix mode's routing
-                // logic above (effectiveProviderForProcessing) — never in the prompt content itself.
                 val geminiSystemPrompt = """
-                    [SYSTEM: ENGINE MODE ENABLED]
-                    You are a strict text processing engine, NOT a conversational chatbot.
+                    [SYSTEM: TEXT PROCESSOR MODE]
+                    You process text for a note-taking app, not a chatbot: never chat, greet, or comment — just return the processed text. Within that, write like a careful human editor, not a corporate style guide: match the register of the source instead of defaulting to stiff, formal phrasing.
                     TARGET LANGUAGE: $language. You MUST translate the output to $language if the input is different.
                     
                     $taskInstruction
@@ -692,8 +914,8 @@ class ResultViewModel(
                 """.trimIndent()
 
                 val groqSystemPrompt = """
-                    [SYSTEM: ENGINE MODE ENABLED]
-                    You are a strict text processing engine, NOT a conversational chatbot.
+                    [SYSTEM: TEXT PROCESSOR MODE]
+                    You process text for a note-taking app, not a chatbot: never chat, greet, or comment — just return the processed text. Within that, write like a careful human editor, not a corporate style guide: match the register of the source instead of defaulting to stiff, formal phrasing.
                     TARGET LANGUAGE: $language. You MUST translate the output to $language if the input is different.
                     
                     $taskInstruction
@@ -722,40 +944,44 @@ class ResultViewModel(
                     8. MERMAID ENFORCEMENT: If the text explains a system flow, login steps, conditions, or processes, YOU ARE FORCED to output a flowchart. Do not ignore logic.
                     9. STRICT MATH ISOLATION: Equations inside `${'$'}${'$'}` or `${'$'}` MUST remain in standard universal symbols (Latin/Greek/Numbers). DO NOT translate variables or put Arabic, Chinese, Korean, or any Non-Latin characters INSIDE the math blocks. Put all translated text OUTSIDE the LaTeX blocks.
                 """.trimIndent()
-                
+
                 val userContent = "Process this text strictly into $language:\n\n${currentNote.rawText}"
 
-                val processedText = if (effectiveProviderForProcessing == 1) { // Groq
+                val processedText = if (effectiveProvider == 1) {
                     val request = GroqChatRequest(
-                        model = "openai/gpt-oss-120b",
+                        model = GroqModels.GPT_OSS_120B,
                         messages = listOf(
                             GroqMessage(role = "system", content = groqSystemPrompt),
                             GroqMessage(role = "user", content = userContent)
                         )
                     )
                     RetrofitClient.groqService.generateContent("Bearer $apiKey", request).choices?.firstOrNull()?.message?.content
-                } else { // Gemini
+                } else {
                     val request = GenerateContentRequest(
                         systemInstruction = Content(parts = listOf(Part(text = geminiSystemPrompt))),
                         contents = listOf(Content(parts = listOf(Part(text = userContent))))
                     )
-                    RetrofitClient.service.generateContent(apiKey, request).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    RetrofitClient.service.generateContent(
+                        model = GeminiModels.FLASH,
+                        apiKey = apiKey,
+                        request = request
+                    ).candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 }
-                
+
                 launch(Dispatchers.Main) {
                     if (processedText != null) {
                         val cleanedText = processedText.trim().removeSurrounding("'", "'").removeSurrounding("\"", "\"")
                         val finalOutput = cleanedText + "\n\n" + metaTag
-                        
+
                         val updatedNote = currentNote.copy(summary = finalOutput, timestamp = System.currentTimeMillis())
                         _note.value = updatedNote
                         noteRepository.update(updatedNote)
-                    } else { 
-                        _error.value = "AI failed to process the text. The server response was empty." 
+                    } else {
+                        _error.value = "AI failed to process the text. The server response was empty."
                     }
                     _isLoading.value = false
                 }
-            } catch (e: Exception) { 
+            } catch (e: Exception) {
                 launch(Dispatchers.Main) {
                     _error.value = handleExceptionError(e)
                     _isLoading.value = false
@@ -781,23 +1007,25 @@ class ResultViewModel(
         }
     }
 
-    override fun onCleared() { 
+    override fun onCleared() {
         super.onCleared()
         mediaPlayer?.release()
         mediaPlayer = null
-        progressJob?.cancel() 
+        progressJob?.cancel()
     }
 
     companion object {
         fun provideFactory(
-            noteId: Int, 
-            repository: NoteRepository, 
-            settingsRepository: SettingsRepository
-        ): ViewModelProvider.Factory = 
+            noteId: Int,
+            repository: NoteRepository,
+            settingsRepository: SettingsRepository,
+            labelRepository: LabelRepository,
+            appContext: Context
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST") 
-                override fun <T : ViewModel> create(modelClass: Class<T>): T { 
-                    return ResultViewModel(noteId, repository, settingsRepository) as T 
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return ResultViewModel(noteId, repository, settingsRepository, labelRepository, appContext) as T
                 }
             }
     }

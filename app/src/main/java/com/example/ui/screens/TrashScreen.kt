@@ -1,9 +1,14 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -19,10 +24,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.NoteEntity
+import com.example.ui.components.BouncyIconButton
 import com.example.viewmodel.HistoryViewModel
 import java.text.SimpleDateFormat
 import java.util.*
@@ -34,12 +43,12 @@ fun TrashScreen(
     onNavigateBack: () -> Unit
 ) {
     val trashedNotes by viewModel.trashedNotes.collectAsState()
+    val haptics = LocalHapticFeedback.current
     var selectedNotes by remember { mutableStateOf(setOf<Int>()) }
     var selectionMode by remember { mutableStateOf(false) }
     var showEmptyTrashDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    // Kalkulasi margin aman untuk notch/cutout supaya konsisten dengan screen lain
     val topInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val safeTopMargin = if (topInsets < 24.dp) 24.dp else topInsets
 
@@ -49,33 +58,39 @@ fun TrashScreen(
             if (selectionMode) {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.fillMaxWidth() 
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     TopAppBar(
-                        // Terapkan batas aman notch di sini
                         windowInsets = WindowInsets(top = safeTopMargin),
                         title = { Text("${selectedNotes.size} Selected") },
                         navigationIcon = {
-                            IconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) { Icon(Icons.Default.Close, "Cancel") }
+                            BouncyIconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) {
+                                Icon(Icons.Default.Close, "Cancel")
+                            }
                         },
                         actions = {
-                            IconButton(onClick = { 
+                            BouncyIconButton(onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.restoreMultipleFromTrash(selectedNotes)
                                 selectionMode = false
                                 selectedNotes = emptySet()
                             }) { Icon(Icons.Default.Restore, "Restore") }
-                            IconButton(onClick = { showDeleteConfirmDialog = true }) { Icon(Icons.Default.DeleteForever, "Delete Permanently", tint = MaterialTheme.colorScheme.error) }
+                            BouncyIconButton(onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showDeleteConfirmDialog = true
+                            }) { Icon(Icons.Default.DeleteForever, "Delete Permanently", tint = MaterialTheme.colorScheme.error) }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                     )
                 }
             } else {
                 TopAppBar(
-                    // Terapkan batas aman notch di sini juga
                     windowInsets = WindowInsets(top = safeTopMargin),
                     title = { Text("Trash") },
                     navigationIcon = {
-                        IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                        BouncyIconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        }
                     },
                     actions = {
                         if (trashedNotes.isNotEmpty()) {
@@ -105,11 +120,14 @@ fun TrashScreen(
                     TrashedNoteCard(
                         note = note,
                         isSelected = isSelected,
-                        onLongClick = { if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) } },
-                        onClick = { 
-                            if (selectionMode) { 
-                                selectedNotes = if (isSelected) selectedNotes - note.id else selectedNotes + note.id 
-                                if (selectedNotes.isEmpty()) selectionMode = false 
+                        onLongClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (!selectionMode) { selectionMode = true; selectedNotes = setOf(note.id) }
+                        },
+                        onClick = {
+                            if (selectionMode) {
+                                selectedNotes = if (isSelected) selectedNotes - note.id else selectedNotes + note.id
+                                if (selectedNotes.isEmpty()) selectionMode = false
                             } else {
                                 selectionMode = true
                                 selectedNotes = setOf(note.id)
@@ -167,6 +185,21 @@ fun TrashedNoteCard(
     val formatter = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
     val displayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else "Empty Note"
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val cardScale = remember { Animatable(1f) }
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    cardScale.animateTo(0.97f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium))
+                }
+                is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    cardScale.animateTo(1f, spring(0.40f, Spring.StiffnessMediumLow))
+                }
+            }
+        }
+    }
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -174,9 +207,18 @@ fun TrashedNoteCard(
         ),
         border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = modifier
+            .graphicsLayer {
+                scaleX = cardScale.value
+                scaleY = cardScale.value
+            }
             .fillMaxWidth()
             .heightIn(min = minHeight)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(note.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)

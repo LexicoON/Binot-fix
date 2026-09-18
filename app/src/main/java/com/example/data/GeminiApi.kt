@@ -17,6 +17,20 @@ import java.util.concurrent.TimeUnit
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
+// --- Constantes de modelos ---
+// Gemini: Lite para tareas simples (títulos, explica), Flash para tareas complejas (análisis, transcripción).
+object GeminiModels {
+    const val FLASH_LITE = "gemini-3.5-flash-lite"
+    const val FLASH = "gemini-3.8-flash"
+}
+
+// Groq: 20B para títulos/explica, 120B para análisis, Whisper para transcripción.
+object GroqModels {
+    const val GPT_OSS_20B = "openai/gpt-oss-20b"
+    const val GPT_OSS_120B = "openai/gpt-oss-120b"
+    const val WHISPER = "whisper-large-v3-turbo"
+}
+
 // --- Gemini Models ---
 
 data class GenerateContentRequest(
@@ -104,8 +118,13 @@ data class GithubAsset(
 // --- Retrofit Services ---
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-3.5-flash-lite:generateContent")
+    /**
+     * generateContent ahora recibe el modelo como parámetro.
+     * Uso: GeminiModels.FLASH_LITE o GeminiModels.FLASH.
+     */
+    @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
+        @Path("model") model: String,
         @Query("key") apiKey: String,
         @Body request: GenerateContentRequest
     ): GenerateContentResponse
@@ -140,7 +159,6 @@ interface GroqApiService {
         @Body request: GroqChatRequest
     ): GroqChatResponse
 
-    // Menggunakan pemanggilan eksplisit supaya tidak bentrok dengan data class Part Gemini
     @retrofit2.http.Multipart
     @POST("openai/v1/audio/transcriptions")
     suspend fun transcribeAudio(
