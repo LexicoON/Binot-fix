@@ -6,9 +6,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -17,8 +14,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -38,7 +33,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -54,6 +48,8 @@ import com.example.data.GroqChatRequest
 import com.example.data.GroqMessage
 import com.example.data.Part
 import com.example.data.RetrofitClient
+import com.example.ui.components.BouncyButton
+import com.example.ui.components.BouncyOutlinedButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
@@ -63,103 +59,6 @@ import java.net.SocketTimeoutException
 
 enum class KeyVerificationState {
     IDLE, LOADING, SUCCESS, ERROR
-}
-
-// ============================================================
-// Bouncy helpers locales
-// ============================================================
-@Composable
-private fun BouncyButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    colors: ButtonColors = ButtonDefaults.buttonColors(),
-    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
-    content: @Composable RowScope.() -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val scale = remember { Animatable(1f) }
-
-    LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.94f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
-    }
-
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        colors = colors,
-        shapes = ButtonDefaults.shapes(),
-        contentPadding = contentPadding,
-        interactionSource = interactionSource,
-        modifier = modifier.graphicsLayer {
-            scaleX = scale.value
-            scaleY = scale.value
-        },
-        content = content
-    )
-}
-
-@Composable
-private fun BouncyOutlinedButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable RowScope.() -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val scale = remember { Animatable(1f) }
-
-    LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    scale.animateTo(
-                        0.96f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        )
-                    )
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    scale.animateTo(
-                        1f,
-                        spring(dampingRatio = 0.40f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        }
-    }
-
-    OutlinedButton(
-        onClick = onClick,
-        enabled = enabled,
-        shapes = ButtonDefaults.shapes(),
-        interactionSource = interactionSource,
-        modifier = modifier.graphicsLayer {
-            scaleX = scale.value
-            scaleY = scale.value
-        },
-        content = content
-    )
 }
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -213,6 +112,9 @@ fun OnboardingScreen(
                         }
                     }
 
+                    // Reemplaza el contentPadding custom con un Modifier.height para
+                    // preservar la altura visual. El shared BouncyButton no expone
+                    // contentPadding, pero 56dp cumple la misma función.
                     BouncyButton(
                         onClick = {
                             if (pagerState.currentPage < 4) {
@@ -281,7 +183,7 @@ fun OnboardingScreen(
                             4 -> apiKeyInput.isNotBlank()
                             else -> true
                         },
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)
+                        modifier = Modifier.height(56.dp)
                     ) {
                         Text(
                             text = if (pagerState.currentPage == 4) "Verify Key" else "Next",
@@ -488,6 +390,7 @@ fun OnboardingScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp),
+                            expandOnPress = 0.dp,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -516,7 +419,7 @@ fun OnboardingScreen(
                         )
                     }
 
-                    // ---------- PAGE 4: Auto Compression (NEW) ----------
+                    // ---------- PAGE 4: Auto Compression ----------
                     4 -> {
                         Text(
                             text = "One last thing.",
@@ -680,7 +583,8 @@ fun OnboardingScreen(
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(64.dp)
+                                                .height(64.dp),
+                                            expandOnPress = 0.dp
                                         ) {
                                             Text(
                                                 text = "Start Workspace",
@@ -736,7 +640,8 @@ fun OnboardingScreen(
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(56.dp)
+                                                .height(56.dp),
+                                            expandOnPress = 0.dp
                                         ) {
                                             Text(
                                                 text = "Review API Key",

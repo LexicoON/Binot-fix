@@ -406,13 +406,19 @@ fun ResultScreen(
                         }
                     },
                     navigationIcon = {
-                        BouncyIconButton(onClick = {
-                            if (isTitleFocused) focusManager.clearFocus()
-                            else if (isEditMode) {
-                                if (hasUnsavedChanges) showCancelConfirmDialog = true else isEditMode = false
-                            }
-                            else closeNote()
-                        }) {
+                        // expandOnPress = 3.dp: está pegado al borde izquierdo del
+                        // top bar (que no tiene padding horizontal), así que una
+                        // expansión grande lo sacaría de la pantalla.
+                        BouncyIconButton(
+                            onClick = {
+                                if (isTitleFocused) focusManager.clearFocus()
+                                else if (isEditMode) {
+                                    if (hasUnsavedChanges) showCancelConfirmDialog = true else isEditMode = false
+                                }
+                                else closeNote()
+                            },
+                            expandOnPress = 3.dp
+                        ) {
                             Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
@@ -448,7 +454,11 @@ fun ResultScreen(
                                     }
                                 }
                             } else {
-                                BouncyIconButton(onClick = { showSidePanel = true }) {
+                                // Mismo caso que Back: pegado al borde derecho.
+                                BouncyIconButton(
+                                    onClick = { showSidePanel = true },
+                                    expandOnPress = 3.dp
+                                ) {
                                     Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Options")
                                 }
                             }
@@ -1031,92 +1041,107 @@ fun ResultScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
                 Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BouncyIconButton(onClick = {
-                        val capturedRect = selectionRect
-                        extractSelectedTextAndExecute { text ->
-                            if (text.isNotBlank()) {
-                                currentHighlightWord = text
-                                highlightNoteInput = ""
-                                if (!note!!.summary.isNullOrEmpty()) {
-                                    val resolved = resolveMarkdownSelection?.invoke(capturedRect, text)
-                                    if (resolved != null) {
-                                        pendingHighlightLine = resolved.first
-                                        pendingHighlightStart = resolved.second
-                                        pendingHighlightEnd = resolved.third
-                                    } else {
-                                        pendingHighlightLine = -1
-                                        pendingHighlightStart = -1
-                                        pendingHighlightEnd = -1
-                                    }
-                                } else {
-                                    val rawPrefix = "Raw Transcript:\n\n"
-                                    val layoutResult = rawTextLayoutResult
-                                    val bounds = rawTextWindowBounds
-                                    if (layoutResult != null && bounds != null) {
-                                        val localX = (capturedRect.left - bounds.left).coerceIn(0f, bounds.width)
-                                        val localY = (capturedRect.center.y - bounds.top).coerceIn(0f, bounds.height)
-                                        val approxOffset = try {
-                                            layoutResult.getOffsetForPosition(androidx.compose.ui.geometry.Offset(localX, localY))
-                                        } catch (e: Exception) { -1 }
-                                        val fullText = rawPrefix + note!!.rawText
-                                        val fullLower = fullText.lowercase()
-                                        val textLower = text.lowercase()
-                                        var bestStart = -1
-                                        var bestDist = Int.MAX_VALUE
-                                        var searchFrom = 0
-                                        while (true) {
-                                            val idx = fullLower.indexOf(textLower, searchFrom)
-                                            if (idx == -1) break
-                                            if (approxOffset >= 0) {
-                                                val dist = kotlin.math.abs(idx - approxOffset)
-                                                if (dist < bestDist) { bestDist = dist; bestStart = idx }
-                                            } else if (bestStart == -1) {
-                                                bestStart = idx
-                                            }
-                                            searchFrom = idx + 1
-                                        }
-                                        if (bestStart >= rawPrefix.length) {
-                                            pendingHighlightLine = -1
-                                            pendingHighlightStart = bestStart - rawPrefix.length
-                                            pendingHighlightEnd = bestStart - rawPrefix.length + text.length
+                    // Son 4 icon buttons pegados en un Row compacto. Con 4dp
+                    // por lado (8dp total por botón) la expansión se nota pero
+                    // no deforma el Card ni los hace pisarse entre sí.
+                    BouncyIconButton(
+                        onClick = {
+                            val capturedRect = selectionRect
+                            extractSelectedTextAndExecute { text ->
+                                if (text.isNotBlank()) {
+                                    currentHighlightWord = text
+                                    highlightNoteInput = ""
+                                    if (!note!!.summary.isNullOrEmpty()) {
+                                        val resolved = resolveMarkdownSelection?.invoke(capturedRect, text)
+                                        if (resolved != null) {
+                                            pendingHighlightLine = resolved.first
+                                            pendingHighlightStart = resolved.second
+                                            pendingHighlightEnd = resolved.third
                                         } else {
                                             pendingHighlightLine = -1
                                             pendingHighlightStart = -1
                                             pendingHighlightEnd = -1
                                         }
                                     } else {
-                                        pendingHighlightLine = -1
-                                        pendingHighlightStart = -1
-                                        pendingHighlightEnd = -1
+                                        val rawPrefix = "Raw Transcript:\n\n"
+                                        val layoutResult = rawTextLayoutResult
+                                        val bounds = rawTextWindowBounds
+                                        if (layoutResult != null && bounds != null) {
+                                            val localX = (capturedRect.left - bounds.left).coerceIn(0f, bounds.width)
+                                            val localY = (capturedRect.center.y - bounds.top).coerceIn(0f, bounds.height)
+                                            val approxOffset = try {
+                                                layoutResult.getOffsetForPosition(androidx.compose.ui.geometry.Offset(localX, localY))
+                                            } catch (e: Exception) { -1 }
+                                            val fullText = rawPrefix + note!!.rawText
+                                            val fullLower = fullText.lowercase()
+                                            val textLower = text.lowercase()
+                                            var bestStart = -1
+                                            var bestDist = Int.MAX_VALUE
+                                            var searchFrom = 0
+                                            while (true) {
+                                                val idx = fullLower.indexOf(textLower, searchFrom)
+                                                if (idx == -1) break
+                                                if (approxOffset >= 0) {
+                                                    val dist = kotlin.math.abs(idx - approxOffset)
+                                                    if (dist < bestDist) { bestDist = dist; bestStart = idx }
+                                                } else if (bestStart == -1) {
+                                                    bestStart = idx
+                                                }
+                                                searchFrom = idx + 1
+                                            }
+                                            if (bestStart >= rawPrefix.length) {
+                                                pendingHighlightLine = -1
+                                                pendingHighlightStart = bestStart - rawPrefix.length
+                                                pendingHighlightEnd = bestStart - rawPrefix.length + text.length
+                                            } else {
+                                                pendingHighlightLine = -1
+                                                pendingHighlightStart = -1
+                                                pendingHighlightEnd = -1
+                                            }
+                                        } else {
+                                            pendingHighlightLine = -1
+                                            pendingHighlightStart = -1
+                                            pendingHighlightEnd = -1
+                                        }
                                     }
+                                    showHighlightDialog = true
                                 }
-                                showHighlightDialog = true
                             }
-                        }
-                    }) {
+                        },
+                        expandOnPress = 4.dp
+                    ) {
                         Icon(Icons.Default.Brush, contentDescription = "Highlight", tint = MaterialTheme.colorScheme.inverseOnSurface)
                     }
-                    BouncyIconButton(onClick = {
-                        copyAction()
-                        clearSelection()
-                        coroutineScope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
-                    }) {
+                    BouncyIconButton(
+                        onClick = {
+                            copyAction()
+                            clearSelection()
+                            coroutineScope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
+                        },
+                        expandOnPress = 4.dp
+                    ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = MaterialTheme.colorScheme.inverseOnSurface)
                     }
-                    BouncyIconButton(onClick = {
-                        selectAllAction()
-                    }) {
+                    BouncyIconButton(
+                        onClick = {
+                            selectAllAction()
+                        },
+                        expandOnPress = 4.dp
+                    ) {
                         Icon(Icons.Default.SelectAll, contentDescription = "Select All", tint = MaterialTheme.colorScheme.inverseOnSurface)
                     }
-                    BouncyIconButton(onClick = {
-                        extractSelectedTextAndExecute { text ->
-                            if (text.isNotBlank()) {
-                                aiExplainTargetWord = text
-                                viewModel.explainText(text, deviceLanguage)
-                                showAiExplainSheet = true
+                    BouncyIconButton(
+                        onClick = {
+                            extractSelectedTextAndExecute { text ->
+                                if (text.isNotBlank()) {
+                                    aiExplainTargetWord = text
+                                    viewModel.explainText(text, deviceLanguage)
+                                    showAiExplainSheet = true
+                                }
                             }
-                        }
-                    }) {
+                        },
+                        expandOnPress = 4.dp
+                    ) {
                         Icon(Icons.Default.Search, contentDescription = "AI Explain", tint = MaterialTheme.colorScheme.inverseOnSurface)
                     }
                 }
@@ -1285,10 +1310,6 @@ fun ResultScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Estos tres cálculos antes se repetían en CADA recomposición del panel
-                // (que se dispara con cada tecla en el campo de búsqueda y con cada
-                // cambio de cualquier estado cercano). Ahora están memorizados por sus
-                // dependencias reales: el summary de la nota y el query del usuario.
                 val cleanSummaryForSearch = remember(note!!.summary) {
                     note!!.summary?.replace(Regex("<!--BINOT_META:.*?-->"), "")?.trimEnd()
                 }
@@ -1314,10 +1335,6 @@ fun ResultScreen(
                                     coroutineScope.launch {
                                         temporaryHighlight = searchHighlightQuery
                                         if (note!!.summary != null) {
-                                            // Busca la Y del item en el mapa que llena MarkdownText.
-                                            // Si el line index exacto no está, cae al más cercano anterior
-                                            // (los items de bloque como tablas o mermaid ocupan varios
-                                            // line indices en el raw text pero solo uno en el mapa).
                                             val target = markdownLinePositions[index]
                                                 ?: markdownLinePositions.keys.filter { it <= index }.maxOrNull()?.let { markdownLinePositions[it] }
                                             if (target != null) {

@@ -8,11 +8,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -323,13 +327,14 @@ fun SettingsScreen(
     var showColorPaletteSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
 
+    // remember: evitar alocar y sortear 23 strings en cada frame.
     val supportedLanguages = remember {
         listOf(
-        "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
-        "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese",
-        "Italian", "Hindi", "Bengali", "Urdu", "Turkish", "Vietnamese", "Thai",
-        "Dutch", "Polish", "Swedish", "Malay"
-    ).sorted()
+            "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
+            "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese",
+            "Italian", "Hindi", "Bengali", "Urdu", "Turkish", "Vietnamese", "Thai",
+            "Dutch", "Polish", "Swedish", "Malay"
+        ).sorted()
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -642,6 +647,7 @@ fun SettingsScreen(
                                 coroutineScope.launch { snackbarHostState.showSnackbar("Name saved successfully!") }
                             },
                             enabled = isNameDirty,
+                            expandOnPress = 0.dp, // está alineado al End con align(), no hace falta el push
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Save Name")
@@ -724,6 +730,7 @@ fun SettingsScreen(
                         BouncyButton(
                             onClick = { showApplyAllDialog = true },
                             modifier = Modifier.fillMaxWidth(),
+                            expandOnPress = 0.dp, // fillMaxWidth: no puede crecer
                             enabled = isChanged
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -790,6 +797,7 @@ fun SettingsScreen(
                                                 coroutineScope.launch { snackbarHostState.showSnackbar("Gemini Configuration saved!") }
                                             },
                                             enabled = isGeminiKeyDirty || tempAiProvider != aiProvider,
+                                            expandOnPress = 0.dp,
                                             modifier = Modifier.align(Alignment.End)
                                         ) {
                                             Text("Save Key")
@@ -819,6 +827,7 @@ fun SettingsScreen(
                                                 coroutineScope.launch { snackbarHostState.showSnackbar("Groq Configuration saved!") }
                                             },
                                             enabled = isGroqKeyDirty || tempAiProvider != aiProvider,
+                                            expandOnPress = 0.dp,
                                             modifier = Modifier.align(Alignment.End)
                                         ) {
                                             Text("Save Key")
@@ -888,6 +897,7 @@ fun SettingsScreen(
                                                 }
                                             },
                                             enabled = tempAiProvider != aiProvider,
+                                            expandOnPress = 0.dp,
                                             modifier = Modifier.align(Alignment.End)
                                         ) {
                                             Text("Save Selection")
@@ -939,40 +949,66 @@ fun SettingsScreen(
                         // Live Transcript solo aplica a Accurate. En Fast el recognizer
                         // ES la grabación (no hay audio que transcribir después), así que
                         // el toggle no tiene sentido ahí.
-                        if (recordMode == 1) {
-                            Spacer(modifier = Modifier.height(20.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                            Spacer(modifier = Modifier.height(16.dp))
+                        //
+                        // AnimatedVisibility con expand/shrink vertical + fade: el bloque
+                        // aparece empujando hacia abajo el contenido siguiente, y desaparece
+                        // colapsando su altura. Antes era un if() duro sin transición.
+                        AnimatedVisibility(
+                            visible = recordMode == 1,
+                            enter = expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ) + fadeIn(
+                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                            ),
+                            exit = shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                )
+                            ) + fadeOut(
+                                animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                            )
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(20.dp))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                                Spacer(modifier = Modifier.height(16.dp))
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "Live Transcript",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            BetaBadge()
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            "Live Transcript",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
+                                            "Shows your phone's live speech-to-text while recording. Faster feedback, but the recognizer fails or freezes on many devices. When off, only the audio is recorded and the AI transcribes it later.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        BetaBadge()
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        "Shows your phone's live speech-to-text while recording. Faster feedback, but the recognizer fails or freezes on many devices. When off, only the audio is recorded and the AI transcribes it later.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Switch(
+                                        checked = liveTranscriptEnabled,
+                                        onCheckedChange = { viewModel.saveLiveTranscript(it) }
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Switch(
-                                    checked = liveTranscriptEnabled,
-                                    onCheckedChange = { viewModel.saveLiveTranscript(it) }
-                                )
                             }
                         }
                     }
