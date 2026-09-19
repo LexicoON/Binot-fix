@@ -65,6 +65,8 @@ fun AudioWaveform(
             val x = startX + (i * (barWidth + gap))
             val baseHeight = 16.dp.toPx()
 
+            // `sin(Float)` devuelve Float directo (overload desde Kotlin 1.5).
+            // Antes había un .toFloat() redundante al final — eliminado.
             val variation = if (amp > 0.05f) {
                 (sin(i * 1.5f + amp * 10f) * 0.15f) + 0.85f
             } else {
@@ -72,7 +74,7 @@ fun AudioWaveform(
             }
 
             val dynamicHeight = if (amp > 0f) {
-                baseHeight + (amp * (canvasHeight - baseHeight) * weightMultipliers[i] * variation.toFloat())
+                baseHeight + (amp * (canvasHeight - baseHeight) * weightMultipliers[i] * variation)
             } else {
                 baseHeight
             }
