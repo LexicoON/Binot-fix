@@ -7,15 +7,21 @@ plugins {
 }
 
 android {
+  // Namespace sigue siendo com.example en A3.1.
+  // A3.2 lo cambia a com.obinot.app junto con todos los .kt.
   namespace = "com.example"
   compileSdk { version = release(37) }
 
   defaultConfig {
+    // applicationId se mantiene igual en A3.1 y A3.2 para permitir
+    // actualización in-place durante el desarrollo.
+    // A3.3 (junto con Play Store prep) lo cambia a com.obinot.app,
+    // momento en el que Obinot se instala como app independiente.
     applicationId = "com.aistudio.binot.xrztp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 20 
-    versionName = "1.1.9"
+    versionCode = 21
+    versionName = "2.0.0-dev"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
