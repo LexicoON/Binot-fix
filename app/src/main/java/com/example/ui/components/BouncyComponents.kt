@@ -3,7 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,11 +23,11 @@ import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,12 +40,15 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Aplica el efecto bouncy (squish + rebound) a un [Animatable] externo.
- * Reutilizable por cualquier componente que quiera el efecto sin heredar
- * de los Bouncy* predefinidos.
  *
  * Lo siguen usando: FAB de HistoryScreen, play button redondo de ResultScreen,
  * NoteCard de HistoryScreen, TrashedNoteCard de TrashScreen, y el play button
- * del side panel de ResultScreen. Esos callers quieren un scale-inward.
+ * del side panel de ResultScreen.
+ *
+ * El truco del `snapTo` en Release es lo que garantiza que incluso un tap
+ * ultra-rápido (press+release en el mismo frame) muestre siempre una
+ * animación perceptible: si la animación de Press no alcanzó a progresar,
+ * forzamos un snap intermedio antes de animar de vuelta al estado normal.
  */
 suspend fun observeBouncyPress(
     interactionSource: MutableInteractionSource,
@@ -75,39 +78,57 @@ suspend fun observeBouncyPress(
 }
 
 /**
- * Estado booleano de press, derivado del InteractionSource.
- * Se usa para manejar la animación de expansión en los Bouncy* (contentPadding).
+ * Animación de expansión horizontal para los BouncyButton / Outlined / Capsule / Chip.
+ *
+ * Se usan [Animatable] + snapTo forzado en Release, igual que [observeBouncyPress].
+ * Eso es lo que garantiza que un tap rápido (press+release en < 100ms) siempre
+ * muestre una animación visible: si al soltar la animación de expansión apenas
+ * arrancó (value < 40% del target), snapTo al 70% antes de animar de vuelta a 0.
  */
 @Composable
-private fun rememberPressState(
+private fun rememberBouncyExpand(
     interactionSource: MutableInteractionSource,
-    enabled: Boolean
-): State<Boolean> {
-    val isPressed = remember { mutableStateOf(false) }
-    LaunchedEffect(interactionSource, enabled) {
-        if (!enabled) {
-            isPressed.value = false
+    enabled: Boolean,
+    expandTarget: Dp
+): State<Dp> {
+    val padding = remember { Animatable(0.dp, Dp.VectorConverter) }
+
+    LaunchedEffect(interactionSource, enabled, expandTarget) {
+        if (!enabled || expandTarget <= 0.dp) {
+            padding.snapTo(0.dp)
             return@LaunchedEffect
         }
         interactionSource.interactions.collect { interaction ->
             when (interaction) {
-                is PressInteraction.Press -> isPressed.value = true
-                is PressInteraction.Release, is PressInteraction.Cancel -> isPressed.value = false
+                is PressInteraction.Press -> {
+                    padding.animateTo(
+                        targetValue = expandTarget,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        )
+                    )
+                }
+                is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    if (padding.value < expandTarget * 0.4f) {
+                        padding.snapTo(expandTarget * 0.7f)
+                    }
+                    padding.animateTo(
+                        targetValue = 0.dp,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        )
+                    )
+                }
             }
         }
     }
-    return isPressed
+    return padding
 }
-
-private fun <T> bouncySpring() = spring<T>(
-    dampingRatio = Spring.DampingRatioMediumBouncy,
-    stiffness = Spring.StiffnessMedium
-)
 
 /**
  * Modificador clickable con efecto bouncy (scale squish).
- * Se mantiene para callers externos que quieran el squish en un container
- * arbitrario (ej: card clickeable en Settings).
  */
 @Composable
 fun Modifier.bouncyClickable(
@@ -136,38 +157,17 @@ fun Modifier.bouncyClickable(
 // BouncyButton
 // ============================================================
 
-/**
- * Botón relleno con el comportamiento del Record button: al presionar, la
- * superficie visible crece horizontalmente y empuja a los vecinos.
- *
- * Se anima `contentPadding` (no el modifier externo). M3 Button internamente
- * hace `Row(Modifier.padding(contentPadding))` dentro de un Surface que se
- * dimensiona al Row. Si el contentPadding horizontal crece, la superficie del
- * botón crece → el usuario VE el botón agrandarse.
- *
- * Usar `Modifier.padding(horizontal = extraPad)` externo NO funciona: solo
- * agrega espacio vacío alrededor, la superficie visible no cambia.
- *
- * IMPORTANTE: si el caller pasa `Modifier.fillMaxWidth()` o `Modifier.weight(1f)`,
- * el botón no puede crecer (el ancho ya está asignado). En esos casos pasar
- * `expandOnPress = 0.dp`.
- */
 @Composable
 fun BouncyButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     colors: ButtonColors = ButtonDefaults.buttonColors(),
-    expandOnPress: Dp = 12.dp,
+    expandOnPress: Dp = 16.dp,
     content: @Composable RowScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by rememberPressState(interactionSource, enabled)
-    val extraPad by animateDpAsState(
-        targetValue = if (isPressed) expandOnPress else 0.dp,
-        animationSpec = bouncySpring(),
-        label = "bouncyButtonPad"
-    )
+    val extraPad by rememberBouncyExpand(interactionSource, enabled, expandOnPress)
 
     val layoutDirection = LocalLayoutDirection.current
     val basePadding = ButtonDefaults.ContentPadding
@@ -194,25 +194,16 @@ fun BouncyButton(
 // BouncyOutlinedButton
 // ============================================================
 
-/**
- * Variante outlined del BouncyButton. Misma filosofía: expansión horizontal
- * vía contentPadding al presionar, push a vecinos, sin scale.
- */
 @Composable
 fun BouncyOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    expandOnPress: Dp = 12.dp,
+    expandOnPress: Dp = 16.dp,
     content: @Composable RowScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by rememberPressState(interactionSource, enabled)
-    val extraPad by animateDpAsState(
-        targetValue = if (isPressed) expandOnPress else 0.dp,
-        animationSpec = bouncySpring(),
-        label = "bouncyOutlinedPad"
-    )
+    val extraPad by rememberBouncyExpand(interactionSource, enabled, expandOnPress)
 
     val layoutDirection = LocalLayoutDirection.current
     val basePadding = ButtonDefaults.ContentPadding
@@ -239,20 +230,17 @@ fun BouncyOutlinedButton(
 // ============================================================
 
 /**
- * Icon button con squish al presionar (scale-inward, como el original).
+ * Icon button con squish al presionar (scale-inward).
  *
- * Se mantiene con scale en vez de expansión porque los IconButton de M3 tienen
- * un tamaño interno fijo (`IconButtonTokens.StateLayerSize`) y no exponen
- * contentPadding. La única forma de agrandar el ripple sería romper el
- * encapsulamiento de M3. El squish funciona bien, es inmediato, y no afecta
- * layout — ideal para top bars y rows compactos.
+ * `expandOnPress` se conserva en la firma por compatibilidad de API.
+ * No se usa: los IconButton de M3 no exponen contentPadding.
  */
 @Composable
 fun BouncyIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    expandOnPress: Dp = 6.dp, // ignorado, conservado por compatibilidad de API
+    expandOnPress: Dp = 6.dp,
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -274,31 +262,62 @@ fun BouncyIconButton(
 }
 
 // ============================================================
-// BouncyCapsule
+// BouncyToggleButton
 // ============================================================
 
 /**
- * Cápsula/pill horizontal con expansión al presionar.
+ * Wrapper de [ToggleButton] de M3 con el mismo squish que los BouncyIconButton.
  *
- * El padding interno está DESPUÉS del clip/background en la cadena de modifiers,
- * así que la superficie visible crece con el padding. La forma se mantiene:
- * CircleShape se estira horizontalmente y queda como cápsula más ancha.
+ * Usado en los toggle groups (Tidy Up / Summary / Analyze, Fast / Accurate,
+ * Auto / Light / Dark / Amoled, Gemini / Groq / Dynamic, etc.) y en el sort
+ * row del History sidebar.
+ *
+ * Estos ToggleButton están repartidos con `Modifier.weight(1f)` dentro de un
+ * Row, así que no pueden crecer horizontalmente (el ancho ya está asignado).
+ * La única forma de darles feedback al press sin romper el layout es el squish
+ * scale, que no afecta el tamaño medido del botón.
  */
+@Composable
+fun BouncyToggleButton(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(interactionSource) {
+        observeBouncyPress(interactionSource, scale, pressedScale = 0.94f)
+    }
+
+    ToggleButton(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        enabled = enabled,
+        interactionSource = interactionSource,
+        modifier = modifier.graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        },
+        content = content
+    )
+}
+
+// ============================================================
+// BouncyCapsule
+// ============================================================
+
 @Composable
 fun BouncyCapsule(
     onClick: () -> Unit,
     containerColor: Color,
     modifier: Modifier = Modifier,
-    expandOnPress: Dp = 10.dp,
+    expandOnPress: Dp = 12.dp,
     content: @Composable RowScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by rememberPressState(interactionSource, enabled = true)
-    val extraPad by animateDpAsState(
-        targetValue = if (isPressed) expandOnPress else 0.dp,
-        animationSpec = bouncySpring(),
-        label = "bouncyCapsulePad"
-    )
+    val extraPad by rememberBouncyExpand(interactionSource, enabled = true, expandOnPress)
 
     Row(
         modifier = modifier
@@ -320,26 +339,16 @@ fun BouncyCapsule(
 // BouncyChip
 // ============================================================
 
-/**
- * Chip compacto con expansión al presionar.
- * Igual que BouncyCapsule: el padding interno está después del background,
- * así que la superficie visible crece.
- */
 @Composable
 fun BouncyChip(
     onClick: () -> Unit,
     containerColor: Color,
     contentColor: Color,
-    expandOnPress: Dp = 10.dp,
+    expandOnPress: Dp = 12.dp,
     content: @Composable RowScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by rememberPressState(interactionSource, enabled = true)
-    val extraPad by animateDpAsState(
-        targetValue = if (isPressed) expandOnPress else 0.dp,
-        animationSpec = bouncySpring(),
-        label = "bouncyChipPad"
-    )
+    val extraPad by rememberBouncyExpand(interactionSource, enabled = true, expandOnPress)
 
     Row(
         modifier = Modifier

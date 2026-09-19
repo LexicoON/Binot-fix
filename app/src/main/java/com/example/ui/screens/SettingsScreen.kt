@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyOutlinedButton
+import com.example.ui.components.BouncyToggleButton
 import com.example.ui.components.bouncyClickable
 import com.example.viewmodel.SettingsViewModel
 import com.example.viewmodel.UpdateState
@@ -101,7 +102,7 @@ private fun ExpressiveToggleGroup(
                 ),
                 label = "toggleScale_$index"
             )
-            ToggleButton(
+            BouncyToggleButton(
                 checked = isSelected,
                 onCheckedChange = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -212,12 +213,6 @@ private fun SettingsSelectionSheet(
     }
 }
 
-/**
- * Insignia "BETA" reutilizable. El título que acompaña a esta insignia SIEMPRE
- * debe llevar `Modifier.weight(1f, fill = false)` + `maxLines = 1` +
- * `overflow = TextOverflow.Ellipsis`, para que Compose reserve el tamaño natural
- * de la insignia antes de repartir lo que sobra al título.
- */
 @Composable
 private fun BetaBadge() {
     Surface(
@@ -248,7 +243,7 @@ private fun TextToggleGroup(
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
     ) {
         labels.forEachIndexed { index, label ->
-            ToggleButton(
+            BouncyToggleButton(
                 checked = selectedIndex == index,
                 onCheckedChange = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -327,7 +322,6 @@ fun SettingsScreen(
     var showColorPaletteSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
 
-    // remember: evitar alocar y sortear 23 strings en cada frame.
     val supportedLanguages = remember {
         listOf(
             "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
@@ -647,7 +641,7 @@ fun SettingsScreen(
                                 coroutineScope.launch { snackbarHostState.showSnackbar("Name saved successfully!") }
                             },
                             enabled = isNameDirty,
-                            expandOnPress = 0.dp, // está alineado al End con align(), no hace falta el push
+                            expandOnPress = 0.dp,
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Save Name")
@@ -730,7 +724,7 @@ fun SettingsScreen(
                         BouncyButton(
                             onClick = { showApplyAllDialog = true },
                             modifier = Modifier.fillMaxWidth(),
-                            expandOnPress = 0.dp, // fillMaxWidth: no puede crecer
+                            expandOnPress = 0.dp,
                             enabled = isChanged
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -946,13 +940,6 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        // Live Transcript solo aplica a Accurate. En Fast el recognizer
-                        // ES la grabación (no hay audio que transcribir después), así que
-                        // el toggle no tiene sentido ahí.
-                        //
-                        // AnimatedVisibility con expand/shrink vertical + fade: el bloque
-                        // aparece empujando hacia abajo el contenido siguiente, y desaparece
-                        // colapsando su altura.
                         AnimatedVisibility(
                             visible = recordMode == 1,
                             enter = expandVertically(
@@ -1216,10 +1203,6 @@ fun SettingsScreen(
                                     Text("App is up to date.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
-                            // when plano (antes AnimatedContent). El AnimatedContent
-                            // intentaba medir el tamaño del botón mientras el contentPadding
-                            // del BouncyButton lo expandía durante el press → loop de
-                            // medición → crash en long press del Check Update.
                             when (updateState) {
                                 UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Text("Check Update") }
                                 UpdateState.Checking -> Button(onClick = {}, enabled = false) { LoadingIndicator(modifier = Modifier.size(20.dp)) }

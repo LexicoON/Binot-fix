@@ -116,6 +116,7 @@ import com.example.data.LabelEntity
 import com.example.data.NoteEntity
 import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyIconButton
+import com.example.ui.components.BouncyToggleButton
 import com.example.ui.components.MarkdownText
 import com.example.ui.components.bouncyClickable
 import com.example.ui.components.observeBouncyPress
@@ -184,15 +185,11 @@ fun HistoryScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    // Mapa id → note para lookups O(1). Antes isAllPinned hacía notes.find{} en bucle,
-    // lo que con 100 notas y 20 seleccionadas eran 2000 comparaciones por recomposición.
     val notesById = remember(notes) { notes.associateBy { it.id } }
     val isAllPinned = remember(selectedNotes, notesById) {
         selectedNotes.isNotEmpty() && selectedNotes.all { notesById[it]?.isPinned == true }
     }
 
-    // filter() recorre la lista entera. Recordarlo evita recorrerla en cada recomposición
-    // disparada por cualquier estado no relacionado (focus del search, sheet, etc).
     val pinnedNotes = remember(notes) { notes.filter { it.isPinned } }
     val unpinnedNotes = remember(notes) { notes.filter { !it.isPinned } }
 
@@ -204,7 +201,6 @@ fun HistoryScreen(
         pinnedNotes.map { it.id } + unpinnedNotes.map { it.id }
     }
 
-    // Lista estática de opciones de sort. Recordarla evita alocar 3 Pairs en cada frame.
     val sortOptions = remember {
         listOf(
             Icons.Default.AccessTime to "Newest",
@@ -250,8 +246,6 @@ fun HistoryScreen(
 
     var isDragHovering by remember { mutableStateOf(false) }
 
-    // Handler de drag & drop. Las URIs se obtienen exclusivamente del clipData,
-    // que es la única fuente que expone la API de DragEvent.
     val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
         object : DragAndDropTarget {
             override fun onStarted(event: DragAndDropEvent) {
@@ -342,7 +336,7 @@ fun HistoryScreen(
                         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                     ) {
                         sortOptions.forEachIndexed { index, (icon, description) ->
-                            ToggleButton(
+                            BouncyToggleButton(
                                 checked = sortMode == index,
                                 onCheckedChange = {
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
