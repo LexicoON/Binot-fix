@@ -28,7 +28,11 @@ class AppContainer(private val application: Application) {
             AppDatabase.MIGRATION_6_7, // Jembatan migrasi buat catálogo de labels con color
             AppDatabase.MIGRATION_7_8  // Jembatan migrasi buat índices compuestos
         )
-        .fallbackToDestructiveMigration() // Pengaman terakhir: kalau ada migrasi yg kelewat/corrupt, di-reset alih-alih Force Close
+        // dropAllTables = true mantiene el comportamiento viejo: si ninguna
+        // migración matchea la versión actual, resetea toda la DB en lugar de
+        // tirar excepción. El default del nuevo overload es false, que haría
+        // que la app crashee — por eso hay que pasarlo explícito.
+        .fallbackToDestructiveMigration(dropAllTables = true)
         .build()
     }
 

@@ -15,10 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -156,7 +156,9 @@ fun ObinotFilePickerSheet(
     }
 
     // Carga inicial y recarga al cambiar de tab o de orden.
-    // Siempre resetea la página a 0 y limpia la lista correspondiente.
+    // Ramifica por tab ANTES de llamar a la query, así cada rama produce el
+    // tipo concreto (List<AudioFileInfo> o List<BinotNoteFileInfo>) sin pasar
+    // por un List<Any> intermedio que dispararía unchecked casts.
     LaunchedEffect(hasPermission, activeTab, sortOrder) {
         if (!hasPermission) {
             isLoading = false
@@ -165,17 +167,22 @@ fun ObinotFilePickerSheet(
         isLoading = true
         page = 0
         hasMore = true
-        val initial = withContext(Dispatchers.IO) {
-            when (activeTab) {
-                PickerTab.AUDIO -> queryAudioFiles(context, sortOrder.sql, PAGE_SIZE, 0)
-                PickerTab.NOTES -> queryBinotFiles(context, PAGE_SIZE, 0)
+        when (activeTab) {
+            PickerTab.AUDIO -> {
+                val initial = withContext(Dispatchers.IO) {
+                    queryAudioFiles(context, sortOrder.sql, PAGE_SIZE, 0)
+                }
+                audioFiles = initial
+                hasMore = initial.size == PAGE_SIZE
+            }
+            PickerTab.NOTES -> {
+                val initial = withContext(Dispatchers.IO) {
+                    queryBinotFiles(context, PAGE_SIZE, 0)
+                }
+                binotFiles = initial
+                hasMore = initial.size == PAGE_SIZE
             }
         }
-        when (activeTab) {
-            PickerTab.AUDIO -> audioFiles = initial as List<AudioFileInfo>
-            PickerTab.NOTES -> binotFiles = initial as List<BinotNoteFileInfo>
-        }
-        hasMore = initial.size == PAGE_SIZE
         isLoading = false
     }
 
@@ -184,18 +191,23 @@ fun ObinotFilePickerSheet(
         isLoadingMore = true
         scope.launch {
             val nextPage = page + 1
-            val next = withContext(Dispatchers.IO) {
-                when (activeTab) {
-                    PickerTab.AUDIO -> queryAudioFiles(context, sortOrder.sql, PAGE_SIZE, nextPage * PAGE_SIZE)
-                    PickerTab.NOTES -> queryBinotFiles(context, PAGE_SIZE, nextPage * PAGE_SIZE)
+            when (activeTab) {
+                PickerTab.AUDIO -> {
+                    val next = withContext(Dispatchers.IO) {
+                        queryAudioFiles(context, sortOrder.sql, PAGE_SIZE, nextPage * PAGE_SIZE)
+                    }
+                    audioFiles = audioFiles + next
+                    hasMore = next.size == PAGE_SIZE
+                }
+                PickerTab.NOTES -> {
+                    val next = withContext(Dispatchers.IO) {
+                        queryBinotFiles(context, PAGE_SIZE, nextPage * PAGE_SIZE)
+                    }
+                    binotFiles = binotFiles + next
+                    hasMore = next.size == PAGE_SIZE
                 }
             }
-            when (activeTab) {
-                PickerTab.AUDIO -> audioFiles = audioFiles + (next as List<AudioFileInfo>)
-                PickerTab.NOTES -> binotFiles = binotFiles + (next as List<BinotNoteFileInfo>)
-            }
             page = nextPage
-            hasMore = next.size == PAGE_SIZE
             isLoadingMore = false
         }
     }
@@ -367,7 +379,7 @@ private fun SortOrderRow(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(current.label)
         }
@@ -538,7 +550,6 @@ private fun queryAudioFiles(
                 val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
                 val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
 
-                // Skipear las primeras `offset` filas manualmente.
                 var skipped = 0
                 while (skipped < offset && cursor.moveToNext()) skipped++
 
@@ -586,7 +597,6 @@ private fun queryBinotFiles(
         MediaStore.Files.FileColumns.SIZE,
         MediaStore.Files.FileColumns.DATE_MODIFIED
     )
-    // LIKE es case-insensitive para ASCII en SQLite, así que esto cubre .binot y .BINOT.
     val selection = "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
     val args = arrayOf("%.binot")
     val sortOrderSql = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"

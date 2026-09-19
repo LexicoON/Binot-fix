@@ -47,6 +47,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
@@ -58,7 +59,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -1263,7 +1263,7 @@ fun ResultScreen(
                     .padding(horizontal = 20.dp)
                     .padding(bottom = 24.dp)
             ) {
-                PanelSectionHeader(icon = Icons.Default.Label, title = "Labels")
+                PanelSectionHeader(icon = Icons.AutoMirrored.Filled.Label, title = "Labels")
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1280,7 +1280,7 @@ fun ResultScreen(
                             containerColor = chipColor,
                             contentColor = chipTextColor
                         ) {
-                            Icon(Icons.Default.Label, null, tint = chipTextColor, modifier = Modifier.size(16.dp))
+                            Icon(Icons.AutoMirrored.Filled.Label, null, tint = chipTextColor, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(label, color = chipTextColor, fontWeight = FontWeight.Bold)
                         }

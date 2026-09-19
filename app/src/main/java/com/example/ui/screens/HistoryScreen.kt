@@ -58,6 +58,8 @@ import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Audiotrack
@@ -68,7 +70,6 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NewReleases
@@ -79,7 +80,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ViewAgenda
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -185,11 +185,15 @@ fun HistoryScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
+    // Mapa id → note para lookups O(1). Antes isAllPinned hacía notes.find{} en bucle,
+    // lo que con 100 notas y 20 seleccionadas eran 2000 comparaciones por recomposición.
     val notesById = remember(notes) { notes.associateBy { it.id } }
     val isAllPinned = remember(selectedNotes, notesById) {
         selectedNotes.isNotEmpty() && selectedNotes.all { notesById[it]?.isPinned == true }
     }
 
+    // filter() recorre la lista entera. Recordarlo evita recorrerla en cada recomposición
+    // disparada por cualquier estado no relacionado (focus del search, sheet, etc).
     val pinnedNotes = remember(notes) { notes.filter { it.isPinned } }
     val unpinnedNotes = remember(notes) { notes.filter { !it.isPinned } }
 
@@ -201,6 +205,7 @@ fun HistoryScreen(
         pinnedNotes.map { it.id } + unpinnedNotes.map { it.id }
     }
 
+    // Lista estática de opciones de sort. Recordarla evita alocar 3 Pairs en cada frame.
     val sortOptions = remember {
         listOf(
             Icons.Default.AccessTime to "Newest",
@@ -246,6 +251,8 @@ fun HistoryScreen(
 
     var isDragHovering by remember { mutableStateOf(false) }
 
+    // Handler de drag & drop. Las URIs se obtienen exclusivamente del clipData,
+    // que es la única fuente que expone la API de DragEvent.
     val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
         object : DragAndDropTarget {
             override fun onStarted(event: DragAndDropEvent) {
@@ -1436,7 +1443,7 @@ fun NoteCard(
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Label, null, tint = chipContentColor, modifier = Modifier.size(12.dp))
+                                Icon(Icons.AutoMirrored.Filled.Label, null, tint = chipContentColor, modifier = Modifier.size(12.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(
                                     label,

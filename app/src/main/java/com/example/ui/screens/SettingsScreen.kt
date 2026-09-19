@@ -27,6 +27,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Bolt
@@ -36,15 +39,12 @@ import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
@@ -150,7 +150,7 @@ private fun SettingsSelectorRow(
                 Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -322,6 +322,7 @@ fun SettingsScreen(
     var showColorPaletteSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
 
+    // remember: evitar alocar y sortear 23 strings en cada frame.
     val supportedLanguages = remember {
         listOf(
             "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
@@ -641,7 +642,7 @@ fun SettingsScreen(
                                 coroutineScope.launch { snackbarHostState.showSnackbar("Name saved successfully!") }
                             },
                             enabled = isNameDirty,
-                            expandOnPress = 0.dp,
+                            expandOnPress = 0.dp, // está alineado al End con align(), no hace falta el push
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Save Name")
@@ -712,8 +713,8 @@ fun SettingsScreen(
                             onSelect = { tempAiFormat = it },
                             labels = listOf("Paragraphs", "Bullets"),
                             icons = listOf(
-                                Icons.Default.Notes,
-                                Icons.Default.FormatListBulleted
+                                Icons.AutoMirrored.Filled.Notes,
+                                Icons.AutoMirrored.Filled.FormatListBulleted
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
