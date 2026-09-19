@@ -1,0 +1,133 @@
+name: Warnings Audit (Manual)
+
+# Solo se corre a mano desde la pestaña Actions.
+# No se dispara por push ni por PR — es una herramienta de diagnóstico.
+on:
+  workflow_dispatch:
+    inputs:
+      gradle_task:
+        description: 'Gradle task to run (default: assembleRelease)'
+        required: false
+        default: 'assembleRelease'
+        type: string
+      upload_only_warnings:
+        description: 'Also generate a filtered log with only warning/deprecated lines'
+        required: false
+        type: boolean
+        default: false
+
+# Allow only one concurrent warnings run per ref, to avoid collisions on artifact names.
+concurrency:
+  group: warnings-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  warnings:
+    name: Collect Gradle warnings
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.7.1'
+
+      - name: Create debug keystore
+        # Mismo fallback que el workflow de dev: si no hay secretos de
+        # release keystore, se firma con debug igual. Los warnings que nos
+        # interesan se emiten antes del firmado, así que no afecta.
+        run: |
+          keytool -genkeypair \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 \
+            -validity 10000 \
+            -storepass android -keypass android \
+            -keystore debug.keystore \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Decode release keystore
+        env:
+          ENCODED_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ENCODED_KEYSTORE" ]; then
+            echo "$ENCODED_KEYSTORE" | base64 --decode --ignore-garbage > my-upload-key.jks
+            echo "Release keystore decoded."
+          else
+            echo "No KEYSTORE_BASE64 secret found — falling back to debug keystore."
+          fi
+
+      # El step clave: corremos con --warning-mode all para que Gradle
+      # imprima TODOS los warnings individuales, no solo el resumen del final.
+      #
+      # continue-on-error: true para que el job no se corte si el build falla
+      # — igual queremos subir el log completo. El chequeo real de fallo lo
+      # hacemos en el step "Fail job if build failed" al final.
+      #
+      # tee guarda el output a warnings_full.log mientras lo sigue mostrando
+      # en la consola de Actions (para verlo en vivo).
+      - name: Run gradle with --warning-mode all
+        id: gradle
+        continue-on-error: true
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          gradle ${{ inputs.gradle_task }} \
+            --warning-mode all \
+            --no-daemon \
+            --stacktrace \
+            2>&1 | tee warnings_full.log
+
+      # Filtro opcional: si marcaste la casilla en el input, generamos un
+      # archivo reducido solo con las líneas relevantes. Útil cuando el log
+      # completo tiene miles de líneas.
+      - name: Generate filtered log
+        if: ${{ always() && inputs.upload_only_warnings }}
+        run: |
+          grep -E -i 'warning|deprecated|\bw:' warnings_full.log > warnings_filtered.log || true
+          echo "Filtered lines: $(wc -l < warnings_filtered.log)"
+          echo "---"
+          cat warnings_filtered.log
+
+      # Subimos el log completo SIEMPRE, aunque el build falle, aunque el
+      # step anterior haya tirado error, y aunque se haya cortado por
+      # timeout. `if: always()` lo garantiza.
+      - name: Upload warnings log (full)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: warnings-full-${{ github.run_number }}
+          path: warnings_full.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload warnings log (filtered)
+        if: ${{ always() && inputs.upload_only_warnings }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: warnings-filtered-${{ github.run_number }}
+          path: warnings_filtered.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Fail al final si el build falló, para que quede claro en la UI de
+      # Actions. El artifact ya se subió en los steps anteriores.
+      - name: Fail job if build failed
+        if: steps.gradle.outcome == 'failure'
+        run: |
+          echo "Gradle build failed. Check the warnings-full artifact for the full log."
+          exit 1

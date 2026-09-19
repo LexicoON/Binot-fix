@@ -1,5 +1,6 @@
 package com.example.data
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -9,6 +10,7 @@ import androidx.room.PrimaryKey
  * color se resuelve consultando esta tabla por nombre. Así, si el usuario cambia el color
  * de "Trabajo", todas las notas que tengan esa label se actualizan al instante.
  */
+@Immutable
 @Entity(tableName = "labels")
 data class LabelEntity(
     @PrimaryKey val name: String,

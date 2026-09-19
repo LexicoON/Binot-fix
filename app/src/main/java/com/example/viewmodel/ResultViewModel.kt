@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -72,12 +73,31 @@ class ResultViewModel(
     private val _playbackProgress = MutableStateFlow(0f)
     val playbackProgress: StateFlow<Float> = _playbackProgress.asStateFlow()
 
-    private val _allLabels = MutableStateFlow<List<String>>(emptyList())
-    val allLabels: StateFlow<List<String>> = _allLabels.asStateFlow()
-
     val labelColors: StateFlow<Map<String, String>> = labelRepository.allLabels
         .map { labels -> labels.associate { it.name to it.colorHex } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /**
+     * Catálogo de labels visibles para esta nota.
+     *
+     * Antes: cargaba TODAS las entidades (rawText, summary, highlightsInfo) y las
+     * recorría para extraer labels. Ahora: combine de dos queries livianas — la
+     * system note (1 fila) y la proyección de la columna label (strings planos).
+     */
+    val allLabels: StateFlow<List<String>> = combine(
+        noteRepository.getAllLabelStrings(),
+        noteRepository.getSystemNote()
+    ) { labelStrings, sysNote ->
+        val customLabels = sysNote?.rawText
+            ?.split("|")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+        val noteLabels = labelStrings.flatMap { raw ->
+            raw.split("|").map { it.trim() }.filter { it.isNotBlank() }
+        }
+        (customLabels + noteLabels).distinct().sorted()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _explainResult = MutableStateFlow<String?>(null)
     val explainResult: StateFlow<String?> = _explainResult.asStateFlow()
@@ -87,7 +107,6 @@ class ResultViewModel(
 
     init {
         loadNote()
-        loadAllLabels()
     }
 
     private fun loadNote() {
@@ -117,18 +136,6 @@ class ResultViewModel(
                     rawText.isNotBlank() -> checkAndTriggerAutoProcess(fetchedNote)
                 }
             }
-        }
-    }
-
-    private fun loadAllLabels() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val notes = noteRepository.getAllNotesSync()
-            val systemNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
-            val customLabels = systemNote?.rawText?.split("|")?.filter { it.isNotBlank() } ?: emptyList()
-            val noteLabels = notes.filter { it.title != "[[BINOT_SYSTEM_LABELS]]" }
-                .flatMap { it.label?.split("|")?.map { l -> l.trim() }?.filter { l -> l.isNotBlank() } ?: emptyList() }
-
-            _allLabels.value = (customLabels + noteLabels).distinct().sorted()
         }
     }
 
@@ -280,8 +287,9 @@ class ResultViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             noteRepository.update(updatedNote)
             if (label.isNotBlank()) {
-                val notes = noteRepository.getAllNotesSync()
-                val sysNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
+                // Antes: getAllNotesSync() (full scan) solo para encontrar la system note.
+                // Ahora: query puntual con índice.
+                val sysNote = noteRepository.getSystemNoteSync()
                 if (sysNote != null) {
                     val labels = sysNote.rawText.split("|").filter { it.isNotBlank() }.toMutableSet()
                     labels.add(label)
@@ -291,7 +299,7 @@ class ResultViewModel(
                 }
                 labelRepository.createLabel(label)
             }
-            loadAllLabels()
+            // allLabels es reactivo desde O2 — no hace falta recargar a mano.
         }
     }
 

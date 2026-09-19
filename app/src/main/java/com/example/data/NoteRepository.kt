@@ -4,6 +4,16 @@ class NoteRepository(private val noteDao: NoteDao) {
     val allNotes = noteDao.getAllNotes()
     val trashedNotes = noteDao.getTrashedNotes()
 
+    /** Flow de las últimas notas (sin la system note), para el carrusel de RecordScreen. */
+    fun getRecentNotes(limit: Int = 16) = noteDao.getRecentNotes(limit)
+
+    /** Nota sintética que guarda el catálogo manual de labels. */
+    fun getSystemNote() = noteDao.getSystemNote()
+    suspend fun getSystemNoteSync() = noteDao.getSystemNoteSync()
+
+    /** Proyección liviana: solo los strings de label, sin cargar entidades completas. */
+    fun getAllLabelStrings() = noteDao.getAllLabelStrings()
+
     suspend fun getAllNotesSync() = noteDao.getAllNotesSync()
     suspend fun deleteAllNotes() = noteDao.deleteAllNotes()
     suspend fun emptyTrash() = noteDao.emptyTrash()
@@ -14,6 +24,5 @@ class NoteRepository(private val noteDao: NoteDao) {
     suspend fun deleteById(id: Int) = noteDao.deleteNoteById(id)
     suspend fun getNoteById(id: Int) = noteDao.getNoteById(id)
 
-    // FUNGSI BARU: Memanggil fungsi reset dari DAO
     suspend fun resetAllSummaries() = noteDao.resetAllSummaries()
 }

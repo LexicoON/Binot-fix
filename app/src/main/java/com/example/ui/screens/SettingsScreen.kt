@@ -8,11 +8,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -62,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyOutlinedButton
+import com.example.ui.components.BouncyToggleButton
 import com.example.ui.components.bouncyClickable
 import com.example.viewmodel.SettingsViewModel
 import com.example.viewmodel.UpdateState
@@ -97,7 +102,7 @@ private fun ExpressiveToggleGroup(
                 ),
                 label = "toggleScale_$index"
             )
-            ToggleButton(
+            BouncyToggleButton(
                 checked = isSelected,
                 onCheckedChange = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -208,12 +213,6 @@ private fun SettingsSelectionSheet(
     }
 }
 
-/**
- * Insignia "BETA" reutilizable. El título que acompaña a esta insignia SIEMPRE
- * debe llevar `Modifier.weight(1f, fill = false)` + `maxLines = 1` +
- * `overflow = TextOverflow.Ellipsis`, para que Compose reserve el tamaño natural
- * de la insignia antes de repartir lo que sobra al título.
- */
 @Composable
 private fun BetaBadge() {
     Surface(
@@ -244,7 +243,7 @@ private fun TextToggleGroup(
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
     ) {
         labels.forEachIndexed { index, label ->
-            ToggleButton(
+            BouncyToggleButton(
                 checked = selectedIndex == index,
                 onCheckedChange = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -323,12 +322,14 @@ fun SettingsScreen(
     var showColorPaletteSheet by remember { mutableStateOf(false) }
     var languageSearchQuery by remember { mutableStateOf("") }
 
-    val supportedLanguages = listOf(
-        "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
-        "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese",
-        "Italian", "Hindi", "Bengali", "Urdu", "Turkish", "Vietnamese", "Thai",
-        "Dutch", "Polish", "Swedish", "Malay"
-    ).sorted()
+    val supportedLanguages = remember {
+        listOf(
+            "English", "Indonesia", "Spanish", "French", "German", "Chinese (Simplified)",
+            "Chinese (Traditional)", "Japanese", "Korean", "Arabic", "Russian", "Portuguese",
+            "Italian", "Hindi", "Bengali", "Urdu", "Turkish", "Vietnamese", "Thai",
+            "Dutch", "Polish", "Swedish", "Malay"
+        ).sorted()
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -640,6 +641,7 @@ fun SettingsScreen(
                                 coroutineScope.launch { snackbarHostState.showSnackbar("Name saved successfully!") }
                             },
                             enabled = isNameDirty,
+                            expandOnPress = 0.dp,
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Save Name")
@@ -722,6 +724,7 @@ fun SettingsScreen(
                         BouncyButton(
                             onClick = { showApplyAllDialog = true },
                             modifier = Modifier.fillMaxWidth(),
+                            expandOnPress = 0.dp,
                             enabled = isChanged
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -788,6 +791,7 @@ fun SettingsScreen(
                                                 coroutineScope.launch { snackbarHostState.showSnackbar("Gemini Configuration saved!") }
                                             },
                                             enabled = isGeminiKeyDirty || tempAiProvider != aiProvider,
+                                            expandOnPress = 0.dp,
                                             modifier = Modifier.align(Alignment.End)
                                         ) {
                                             Text("Save Key")
@@ -817,6 +821,7 @@ fun SettingsScreen(
                                                 coroutineScope.launch { snackbarHostState.showSnackbar("Groq Configuration saved!") }
                                             },
                                             enabled = isGroqKeyDirty || tempAiProvider != aiProvider,
+                                            expandOnPress = 0.dp,
                                             modifier = Modifier.align(Alignment.End)
                                         ) {
                                             Text("Save Key")
@@ -886,6 +891,7 @@ fun SettingsScreen(
                                                 }
                                             },
                                             enabled = tempAiProvider != aiProvider,
+                                            expandOnPress = 0.dp,
                                             modifier = Modifier.align(Alignment.End)
                                         ) {
                                             Text("Save Selection")
@@ -934,43 +940,62 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        // Live Transcript solo aplica a Accurate. En Fast el recognizer
-                        // ES la grabación (no hay audio que transcribir después), así que
-                        // el toggle no tiene sentido ahí.
-                        if (recordMode == 1) {
-                            Spacer(modifier = Modifier.height(20.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                            Spacer(modifier = Modifier.height(16.dp))
+                        AnimatedVisibility(
+                            visible = recordMode == 1,
+                            enter = expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ) + fadeIn(
+                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                            ),
+                            exit = shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                )
+                            ) + fadeOut(
+                                animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                            )
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(20.dp))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                                Spacer(modifier = Modifier.height(16.dp))
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "Live Transcript",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            BetaBadge()
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            "Live Transcript",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
+                                            "Shows your phone's live speech-to-text while recording. Faster feedback, but the recognizer fails or freezes on many devices. When off, only the audio is recorded and the AI transcribes it later.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        BetaBadge()
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        "Shows your phone's live speech-to-text while recording. Faster feedback, but the recognizer fails or freezes on many devices. When off, only the audio is recorded and the AI transcribes it later.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Switch(
+                                        checked = liveTranscriptEnabled,
+                                        onCheckedChange = { viewModel.saveLiveTranscript(it) }
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Switch(
-                                    checked = liveTranscriptEnabled,
-                                    onCheckedChange = { viewModel.saveLiveTranscript(it) }
-                                )
                             }
                         }
                     }
@@ -1178,15 +1203,13 @@ fun SettingsScreen(
                                     Text("App is up to date.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
-                            AnimatedContent(targetState = updateState, label = "update_btn") { state ->
-                                when (state) {
-                                    UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Text("Check Update") }
-                                    UpdateState.Checking -> Button(onClick = {}, enabled = false) { LoadingIndicator(modifier = Modifier.size(20.dp)) }
-                                    UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }) { Text("Update App") }
-                                    UpdateState.Downloading -> OutlinedButton(onClick = {}) { Text("Downloading") }
-                                    UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
-                                    UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Retry") }
-                                }
+                            when (updateState) {
+                                UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Text("Check Update") }
+                                UpdateState.Checking -> Button(onClick = {}, enabled = false) { LoadingIndicator(modifier = Modifier.size(20.dp)) }
+                                UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }) { Text("Update App") }
+                                UpdateState.Downloading -> OutlinedButton(onClick = {}) { Text("Downloading") }
+                                UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
+                                UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Retry") }
                             }
                         }
                     }

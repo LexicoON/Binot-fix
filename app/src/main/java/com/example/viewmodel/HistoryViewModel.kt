@@ -51,12 +51,26 @@ class HistoryViewModel(
     val trashedNotes: StateFlow<List<NoteEntity>> = repository.trashedNotes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val uniqueLabels: StateFlow<List<String>> = repository.allNotes.map { notes ->
-        val systemNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
-        val customLabels = systemNote?.rawText?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
-        val noteLabels = notes.filter { it.title != "[[BINOT_SYSTEM_LABELS]]" }
-            .flatMap { it.label?.split("|")?.map { l -> l.trim() }?.filter { l -> l.isNotBlank() } ?: emptyList() }
-
+    /**
+     * Catálogo de labels únicos del sistema (custom + los que aparecen en notas).
+     *
+     * Antes: repository.allNotes.map { notes -> ... } cargaba TODAS las entidades
+     * (rawText, summary, highlightsInfo) y las recorría para extraer los labels.
+     * Ahora: combine de dos queries livianas — la system note (1 fila) y la
+     * proyección de la columna label (strings planos). Sin cargar entidades.
+     */
+    val uniqueLabels: StateFlow<List<String>> = combine(
+        repository.getAllLabelStrings(),
+        repository.getSystemNote()
+    ) { labelStrings, sysNote ->
+        val customLabels = sysNote?.rawText
+            ?.split("|")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+        val noteLabels = labelStrings.flatMap { raw ->
+            raw.split("|").map { it.trim() }.filter { it.isNotBlank() }
+        }
         (customLabels + noteLabels).distinct().sorted()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -173,8 +187,7 @@ class HistoryViewModel(
         if (cleanLabel.isBlank()) return
 
         viewModelScope.launch(Dispatchers.IO) {
-            val notes = repository.getAllNotesSync()
-            val sysNote = notes.find { it.title == "[[BINOT_SYSTEM_LABELS]]" }
+            val sysNote = repository.getSystemNoteSync()
 
             // 1. Actualizar/crear la nota sintética
             if (sysNote != null) {

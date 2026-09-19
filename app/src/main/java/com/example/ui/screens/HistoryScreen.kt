@@ -116,6 +116,7 @@ import com.example.data.LabelEntity
 import com.example.data.NoteEntity
 import com.example.ui.components.BouncyButton
 import com.example.ui.components.BouncyIconButton
+import com.example.ui.components.BouncyToggleButton
 import com.example.ui.components.MarkdownText
 import com.example.ui.components.bouncyClickable
 import com.example.ui.components.observeBouncyPress
@@ -184,12 +185,13 @@ fun HistoryScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    val isAllPinned = selectedNotes.isNotEmpty() && selectedNotes.all { id ->
-        notes.find { it.id == id }?.isPinned == true
+    val notesById = remember(notes) { notes.associateBy { it.id } }
+    val isAllPinned = remember(selectedNotes, notesById) {
+        selectedNotes.isNotEmpty() && selectedNotes.all { notesById[it]?.isPinned == true }
     }
 
-    val pinnedNotes = notes.filter { it.isPinned }
-    val unpinnedNotes = notes.filter { !it.isPinned }
+    val pinnedNotes = remember(notes) { notes.filter { it.isPinned } }
+    val unpinnedNotes = remember(notes) { notes.filter { !it.isPinned } }
 
     val gridState = rememberLazyStaggeredGridState()
     val isFabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
@@ -197,6 +199,14 @@ fun HistoryScreen(
     val swipeState = remember { MagneticSwipeState() }
     val orderedNoteIds = remember(pinnedNotes, unpinnedNotes) {
         pinnedNotes.map { it.id } + unpinnedNotes.map { it.id }
+    }
+
+    val sortOptions = remember {
+        listOf(
+            Icons.Default.AccessTime to "Newest",
+            Icons.Default.History to "Oldest",
+            Icons.AutoMirrored.Filled.Sort to "A–Z"
+        )
     }
 
     val currentVersion = remember {
@@ -236,8 +246,6 @@ fun HistoryScreen(
 
     var isDragHovering by remember { mutableStateOf(false) }
 
-    // Handler de drag & drop. Las URIs se obtienen exclusivamente del clipData,
-    // que es la única fuente que expone la API de DragEvent.
     val dragAndDropCallback = remember(context, coroutineScope, snackbarHostState, onImportFile) {
         object : DragAndDropTarget {
             override fun onStarted(event: DragAndDropEvent) {
@@ -323,17 +331,12 @@ fun HistoryScreen(
                     Spacer(Modifier.height(24.dp))
                     Text("Sort By", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
 
-                    val sortOptions = listOf(
-                        Icons.Default.AccessTime to "Newest",
-                        Icons.Default.History to "Oldest",
-                        Icons.AutoMirrored.Filled.Sort to "A–Z"
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                     ) {
                         sortOptions.forEachIndexed { index, (icon, description) ->
-                            ToggleButton(
+                            BouncyToggleButton(
                                 checked = sortMode == index,
                                 onCheckedChange = {
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -529,7 +532,7 @@ fun HistoryScreen(
                                     },
                                     onShare = {
                                         val noteId = selectedNotes.firstOrNull()
-                                        val noteToShare = noteId?.let { id -> notes.find { it.id == id } }
+                                        val noteToShare = noteId?.let { id -> notesById[id] }
                                         if (noteToShare != null) {
                                             coroutineScope.launch {
                                                 snackbarHostState.showSnackbar("Generating .binot file...")

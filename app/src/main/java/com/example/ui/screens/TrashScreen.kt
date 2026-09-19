@@ -64,21 +64,32 @@ fun TrashScreen(
                         windowInsets = WindowInsets(top = safeTopMargin),
                         title = { Text("${selectedNotes.size} Selected") },
                         navigationIcon = {
-                            BouncyIconButton(onClick = { selectionMode = false; selectedNotes = emptySet() }) {
+                            // expandOnPress = 3.dp: pegado al borde izquierdo.
+                            BouncyIconButton(
+                                onClick = { selectionMode = false; selectedNotes = emptySet() },
+                                expandOnPress = 3.dp
+                            ) {
                                 Icon(Icons.Default.Close, "Cancel")
                             }
                         },
                         actions = {
-                            BouncyIconButton(onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.restoreMultipleFromTrash(selectedNotes)
-                                selectionMode = false
-                                selectedNotes = emptySet()
-                            }) { Icon(Icons.Default.Restore, "Restore") }
-                            BouncyIconButton(onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                showDeleteConfirmDialog = true
-                            }) { Icon(Icons.Default.DeleteForever, "Delete Permanently", tint = MaterialTheme.colorScheme.error) }
+                            // Pegados al borde derecho.
+                            BouncyIconButton(
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.restoreMultipleFromTrash(selectedNotes)
+                                    selectionMode = false
+                                    selectedNotes = emptySet()
+                                },
+                                expandOnPress = 3.dp
+                            ) { Icon(Icons.Default.Restore, "Restore") }
+                            BouncyIconButton(
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showDeleteConfirmDialog = true
+                                },
+                                expandOnPress = 3.dp
+                            ) { Icon(Icons.Default.DeleteForever, "Delete Permanently", tint = MaterialTheme.colorScheme.error) }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                     )
@@ -88,7 +99,11 @@ fun TrashScreen(
                     windowInsets = WindowInsets(top = safeTopMargin),
                     title = { Text("Trash") },
                     navigationIcon = {
-                        BouncyIconButton(onClick = onNavigateBack) {
+                        // Pegado al borde izquierdo.
+                        BouncyIconButton(
+                            onClick = onNavigateBack,
+                            expandOnPress = 3.dp
+                        ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                         }
                     },

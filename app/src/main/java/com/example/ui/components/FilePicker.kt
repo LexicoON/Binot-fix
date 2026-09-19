@@ -1,7 +1,10 @@
 package com.example.ui.components
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -73,15 +77,19 @@ data class BinotNoteFileInfo(
         }
 }
 
-enum class AudioSortOrder(val label: String) {
-    DATE_MODIFIED_DESC("Newest"),
-    DATE_MODIFIED_ASC("Oldest"),
-    NAME_ASC("Name (A-Z)"),
-    NAME_DESC("Name (Z-A)"),
-    DURATION_DESC("Longest"),
-    DURATION_ASC("Shortest"),
-    SIZE_DESC("Largest"),
-    SIZE_ASC("Smallest")
+/**
+ * Órdenes de la pestaña Audio. Cada uno lleva el fragmento SQL que se pasa
+ * directo al MediaStore, para que la paginación server-side respete el orden.
+ */
+enum class AudioSortOrder(val label: String, val sql: String) {
+    DATE_MODIFIED_DESC("Newest", "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"),
+    DATE_MODIFIED_ASC("Oldest", "${MediaStore.Audio.Media.DATE_MODIFIED} ASC"),
+    NAME_ASC("Name (A-Z)", "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE ASC"),
+    NAME_DESC("Name (Z-A)", "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE DESC"),
+    DURATION_DESC("Longest", "${MediaStore.Audio.Media.DURATION} DESC"),
+    DURATION_ASC("Shortest", "${MediaStore.Audio.Media.DURATION} ASC"),
+    SIZE_DESC("Largest", "${MediaStore.Audio.Media.SIZE} DESC"),
+    SIZE_ASC("Smallest", "${MediaStore.Audio.Media.SIZE} ASC")
 }
 
 /** Qué pestaña del picker unificado está activa. */
@@ -89,6 +97,10 @@ enum class PickerTab(val label: String) {
     AUDIO("Audio"),
     NOTES(".binot Notes")
 }
+
+/** Tamaño de página para paginar MediaStore. 150 es un buen balance entre
+ *  cantidad de filas por query y fluidez del scroll inicial. */
+private const val PAGE_SIZE = 150
 
 /**
  * Picker unificado: audios del dispositivo + notas .binot exportadas (el formato nativo
@@ -110,15 +122,19 @@ fun ObinotFilePickerSheet(
     initialTab: PickerTab = PickerTab.AUDIO
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var activeTab by remember { mutableStateOf(initialTab) }
 
     var audioFiles by remember { mutableStateOf<List<AudioFileInfo>>(emptyList()) }
     var binotFiles by remember { mutableStateOf<List<BinotNoteFileInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var isLoadingMore by remember { mutableStateOf(false) }
+    var hasMore by remember { mutableStateOf(true) }
+    var page by remember { mutableIntStateOf(0) }
     var sortOrder by remember { mutableStateOf(AudioSortOrder.DATE_MODIFIED_DESC) }
 
     // Sin este permiso el cursor de MediaStore vuelve vacío para ambas colecciones.
-    val storagePermission = if (android.os.Build.VERSION.SDK_INT >= 33) {
+    val storagePermission = if (Build.VERSION.SDK_INT >= 33) {
         android.Manifest.permission.READ_MEDIA_AUDIO
     } else {
         android.Manifest.permission.READ_EXTERNAL_STORAGE
@@ -139,30 +155,50 @@ fun ObinotFilePickerSheet(
         if (!hasPermission) permissionLauncher.launch(storagePermission)
     }
 
-    LaunchedEffect(hasPermission, activeTab) {
+    // Carga inicial y recarga al cambiar de tab o de orden.
+    // Siempre resetea la página a 0 y limpia la lista correspondiente.
+    LaunchedEffect(hasPermission, activeTab, sortOrder) {
+        if (!hasPermission) {
+            isLoading = false
+            return@LaunchedEffect
+        }
         isLoading = true
-        if (hasPermission) {
+        page = 0
+        hasMore = true
+        val initial = withContext(Dispatchers.IO) {
             when (activeTab) {
-                PickerTab.AUDIO -> audioFiles = withContext(Dispatchers.IO) { queryAudioFiles(context) }
-                PickerTab.NOTES -> binotFiles = withContext(Dispatchers.IO) { queryBinotFiles(context) }
+                PickerTab.AUDIO -> queryAudioFiles(context, sortOrder.sql, PAGE_SIZE, 0)
+                PickerTab.NOTES -> queryBinotFiles(context, PAGE_SIZE, 0)
             }
         }
+        when (activeTab) {
+            PickerTab.AUDIO -> audioFiles = initial as List<AudioFileInfo>
+            PickerTab.NOTES -> binotFiles = initial as List<BinotNoteFileInfo>
+        }
+        hasMore = initial.size == PAGE_SIZE
         isLoading = false
     }
 
-    val sortedAudio = remember(audioFiles, sortOrder) {
-        when (sortOrder) {
-            AudioSortOrder.DATE_MODIFIED_DESC -> audioFiles.sortedByDescending { it.dateModified }
-            AudioSortOrder.DATE_MODIFIED_ASC -> audioFiles.sortedBy { it.dateModified }
-            AudioSortOrder.NAME_ASC -> audioFiles.sortedBy { it.name.lowercase() }
-            AudioSortOrder.NAME_DESC -> audioFiles.sortedByDescending { it.name.lowercase() }
-            AudioSortOrder.DURATION_DESC -> audioFiles.sortedByDescending { it.durationMs }
-            AudioSortOrder.DURATION_ASC -> audioFiles.sortedBy { it.durationMs }
-            AudioSortOrder.SIZE_DESC -> audioFiles.sortedByDescending { it.sizeBytes }
-            AudioSortOrder.SIZE_ASC -> audioFiles.sortedBy { it.sizeBytes }
+    fun loadMore() {
+        if (isLoadingMore || !hasMore) return
+        isLoadingMore = true
+        scope.launch {
+            val nextPage = page + 1
+            val next = withContext(Dispatchers.IO) {
+                when (activeTab) {
+                    PickerTab.AUDIO -> queryAudioFiles(context, sortOrder.sql, PAGE_SIZE, nextPage * PAGE_SIZE)
+                    PickerTab.NOTES -> queryBinotFiles(context, PAGE_SIZE, nextPage * PAGE_SIZE)
+                }
+            }
+            when (activeTab) {
+                PickerTab.AUDIO -> audioFiles = audioFiles + (next as List<AudioFileInfo>)
+                PickerTab.NOTES -> binotFiles = binotFiles + (next as List<BinotNoteFileInfo>)
+            }
+            page = nextPage
+            hasMore = next.size == PAGE_SIZE
+            isLoadingMore = false
         }
     }
-    val sortedNotes = remember(binotFiles) { binotFiles.sortedByDescending { it.dateModified } }
 
     val safLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -226,7 +262,7 @@ fun ObinotFilePickerSheet(
                 Spacer(Modifier.height(8.dp))
             }
 
-            val isEmpty = if (activeTab == PickerTab.AUDIO) sortedAudio.isEmpty() else sortedNotes.isEmpty()
+            val isEmpty = if (activeTab == PickerTab.AUDIO) audioFiles.isEmpty() else binotFiles.isEmpty()
 
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
@@ -263,8 +299,13 @@ fun ObinotFilePickerSheet(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(sortedAudio, key = { it.uri.toString() }) { file ->
+                    items(audioFiles, key = { it.uri.toString() }) { file ->
                         AudioFileRow(file = file, onSelect = { onFileSelected(file.uri) })
+                    }
+                    if (hasMore) {
+                        item(key = "load_more_audio") {
+                            LoadMoreRow(isLoading = isLoadingMore, onClick = { loadMore() })
+                        }
                     }
                 }
             } else {
@@ -272,8 +313,13 @@ fun ObinotFilePickerSheet(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(sortedNotes, key = { it.uri.toString() }) { file ->
+                    items(binotFiles, key = { it.uri.toString() }) { file ->
                         BinotFileRow(file = file, onSelect = { onFileSelected(file.uri) })
+                    }
+                    if (hasMore) {
+                        item(key = "load_more_binot") {
+                            LoadMoreRow(isLoading = isLoadingMore, onClick = { loadMore() })
+                        }
                     }
                 }
             }
@@ -285,6 +331,28 @@ fun ObinotFilePickerSheet(
 @Composable
 fun AudioFilePickerSheet(onDismiss: () -> Unit, onFileSelected: (Uri) -> Unit) {
     ObinotFilePickerSheet(onDismiss = onDismiss, onFileSelected = onFileSelected, initialTab = PickerTab.AUDIO)
+}
+
+@Composable
+private fun LoadMoreRow(isLoading: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 2.dp
+            )
+        } else {
+            OutlinedButton(onClick = onClick) {
+                Text("Load more")
+            }
+        }
+    }
 }
 
 @Composable
@@ -406,8 +474,20 @@ private fun BinotFileRow(
     }
 }
 
-/** Consulta MediaStore para obtener la lista de archivos de audio, sin filtrar por tipo (música/podcast). */
-private fun queryAudioFiles(context: Context): List<AudioFileInfo> {
+// ============================================================
+// MediaStore queries con paginación
+//
+// En API 26+ usamos el Bundle de ContentResolver para empujar LIMIT y OFFSET
+// al cursor de MediaStore. Eso evita materializar miles de filas en memoria.
+// En API 24-25 hacemos el skip manual con moveToPosition.
+// ============================================================
+
+private fun queryAudioFiles(
+    context: Context,
+    sortOrderSql: String,
+    limit: Int,
+    offset: Int
+): List<AudioFileInfo> {
     val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
     val projection = arrayOf(
         MediaStore.Audio.Media._ID,
@@ -417,31 +497,67 @@ private fun queryAudioFiles(context: Context): List<AudioFileInfo> {
         MediaStore.Audio.Media.MIME_TYPE,
         MediaStore.Audio.Media.DATE_MODIFIED
     )
-    val sort = "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
 
     val result = mutableListOf<AudioFileInfo>()
     try {
-        context.contentResolver.query(collection, projection, null, null, sort)?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
-            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
-            val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val bundle = Bundle().apply {
+                putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+                putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrderSql)
+            }
+            context.contentResolver.query(collection, projection, bundle, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
 
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val uri = Uri.withAppendedPath(collection, id.toString())
-                result.add(
-                    AudioFileInfo(
-                        uri = uri,
-                        name = cursor.getString(nameCol) ?: "Unnamed",
-                        durationMs = cursor.getLong(durationCol),
-                        sizeBytes = cursor.getLong(sizeCol),
-                        mimeType = cursor.getString(mimeCol) ?: "audio/*",
-                        dateModified = cursor.getLong(dateCol)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val uri = Uri.withAppendedPath(collection, id.toString())
+                    result.add(
+                        AudioFileInfo(
+                            uri = uri,
+                            name = cursor.getString(nameCol) ?: "Unnamed",
+                            durationMs = cursor.getLong(durationCol),
+                            sizeBytes = cursor.getLong(sizeCol),
+                            mimeType = cursor.getString(mimeCol) ?: "audio/*",
+                            dateModified = cursor.getLong(dateCol)
+                        )
                     )
-                )
+                }
+            }
+        } else {
+            context.contentResolver.query(collection, projection, null, null, sortOrderSql)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+
+                // Skipear las primeras `offset` filas manualmente.
+                var skipped = 0
+                while (skipped < offset && cursor.moveToNext()) skipped++
+
+                var read = 0
+                while (read < limit && cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val uri = Uri.withAppendedPath(collection, id.toString())
+                    result.add(
+                        AudioFileInfo(
+                            uri = uri,
+                            name = cursor.getString(nameCol) ?: "Unnamed",
+                            durationMs = cursor.getLong(durationCol),
+                            sizeBytes = cursor.getLong(sizeCol),
+                            mimeType = cursor.getString(mimeCol) ?: "audio/*",
+                            dateModified = cursor.getLong(dateCol)
+                        )
+                    )
+                    read++
+                }
             }
         }
     } catch (e: Exception) {
@@ -455,8 +571,14 @@ private fun queryAudioFiles(context: Context): List<AudioFileInfo> {
  * MANAGE_EXTERNAL_STORAGE, esto solo ve archivos que la propia app indexó (los que ella
  * misma exportó). Es una limitación de la plataforma, no del código — por eso el picker
  * siempre ofrece "Browse files" como respaldo.
+ *
+ * Orden fijo: DATE_MODIFIED DESC. La paginación server-side respeta ese orden.
  */
-private fun queryBinotFiles(context: Context): List<BinotNoteFileInfo> {
+private fun queryBinotFiles(
+    context: Context,
+    limit: Int,
+    offset: Int
+): List<BinotNoteFileInfo> {
     val collection = MediaStore.Files.getContentUri("external")
     val projection = arrayOf(
         MediaStore.Files.FileColumns._ID,
@@ -467,27 +589,61 @@ private fun queryBinotFiles(context: Context): List<BinotNoteFileInfo> {
     // LIKE es case-insensitive para ASCII en SQLite, así que esto cubre .binot y .BINOT.
     val selection = "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
     val args = arrayOf("%.binot")
-    val sort = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+    val sortOrderSql = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
 
     val result = mutableListOf<BinotNoteFileInfo>()
     try {
-        context.contentResolver.query(collection, projection, selection, args, sort)?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-            val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val bundle = Bundle().apply {
+                putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+                putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrderSql)
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, args)
+            }
+            context.contentResolver.query(collection, projection, bundle, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
 
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val uri = Uri.withAppendedPath(collection, id.toString())
-                result.add(
-                    BinotNoteFileInfo(
-                        uri = uri,
-                        name = cursor.getString(nameCol) ?: "Unnamed.binot",
-                        sizeBytes = cursor.getLong(sizeCol),
-                        dateModified = cursor.getLong(dateCol)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val uri = Uri.withAppendedPath(collection, id.toString())
+                    result.add(
+                        BinotNoteFileInfo(
+                            uri = uri,
+                            name = cursor.getString(nameCol) ?: "Unnamed.binot",
+                            sizeBytes = cursor.getLong(sizeCol),
+                            dateModified = cursor.getLong(dateCol)
+                        )
                     )
-                )
+                }
+            }
+        } else {
+            context.contentResolver.query(collection, projection, selection, args, sortOrderSql)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+
+                var skipped = 0
+                while (skipped < offset && cursor.moveToNext()) skipped++
+
+                var read = 0
+                while (read < limit && cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val uri = Uri.withAppendedPath(collection, id.toString())
+                    result.add(
+                        BinotNoteFileInfo(
+                            uri = uri,
+                            name = cursor.getString(nameCol) ?: "Unnamed.binot",
+                            sizeBytes = cursor.getLong(sizeCol),
+                            dateModified = cursor.getLong(dateCol)
+                        )
+                    )
+                    read++
+                }
             }
         }
     } catch (e: Exception) {
