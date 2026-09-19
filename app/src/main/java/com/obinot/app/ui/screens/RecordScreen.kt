@@ -53,6 +53,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.obinot.app.R
 import com.obinot.app.ui.components.AudioFilePickerSheet
 import com.obinot.app.ui.components.BouncyButton
 import com.obinot.app.ui.components.observeBouncyPress
@@ -135,21 +137,61 @@ fun RecordScreen(
         hasPermission = granted
     }
 
+    // Cargar los greetings por hora desde recursos. Se hace una vez por cambio
+    // de contexto (rotación, locale) y se cachea con remember.
+    val morningGreetings = remember(context) {
+        listOf(
+            context.getString(R.string.record_greeting_morning_1),
+            context.getString(R.string.record_greeting_morning_2),
+            context.getString(R.string.record_greeting_morning_3),
+            context.getString(R.string.record_greeting_morning_4),
+            context.getString(R.string.record_greeting_morning_5),
+        )
+    }
+    val afternoonGreetings = remember(context) {
+        listOf(
+            context.getString(R.string.record_greeting_afternoon_1),
+            context.getString(R.string.record_greeting_afternoon_2),
+            context.getString(R.string.record_greeting_afternoon_3),
+            context.getString(R.string.record_greeting_afternoon_4),
+            context.getString(R.string.record_greeting_afternoon_5),
+        )
+    }
+    val eveningGreetings = remember(context) {
+        listOf(
+            context.getString(R.string.record_greeting_evening_1),
+            context.getString(R.string.record_greeting_evening_2),
+            context.getString(R.string.record_greeting_evening_3),
+            context.getString(R.string.record_greeting_evening_4),
+            context.getString(R.string.record_greeting_evening_5),
+        )
+    }
+    val nightGreetings = remember(context) {
+        listOf(
+            context.getString(R.string.record_greeting_night_1),
+            context.getString(R.string.record_greeting_night_2),
+            context.getString(R.string.record_greeting_night_3),
+            context.getString(R.string.record_greeting_night_4),
+            context.getString(R.string.record_greeting_night_5),
+        )
+    }
+
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val greetings = remember(hour) {
+    val greetings = remember(hour, morningGreetings, afternoonGreetings, eveningGreetings, nightGreetings) {
         when (hour) {
-            in 5..11 -> listOf("Good morning,", "Rise and shine,", "A fresh start,", "Morning inspiration,", "Start your day right,")
-            in 12..16 -> listOf("Good afternoon,", "Midday thoughts,", "Keep it going,", "Stay productive,", "Afternoon check-in,")
-            in 17..20 -> listOf("Good evening,", "Winding down,", "Evening reflection,", "Time to relax,", "Sunset thoughts,")
-            else -> listOf("Late night thoughts,", "Midnight notes,", "Still awake?,", "Quiet hours,", "Rest well,")
+            in 5..11 -> morningGreetings
+            in 12..16 -> afternoonGreetings
+            in 17..20 -> eveningGreetings
+            else -> nightGreetings
         }
     }
-    val randomGreeting = remember(hour) { greetings.random() }
+    val randomGreeting = remember(hour, greetings) { greetings.random() }
 
+    val guestFallback = stringResource(R.string.record_guest)
     val greetingText = buildAnnotatedString {
         append("$randomGreeting\n")
         withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-            append(if (userName.isNotBlank()) userName else "Guest")
+            append(if (userName.isNotBlank()) userName else guestFallback)
         }
         append(".")
     }
@@ -164,11 +206,14 @@ fun RecordScreen(
     // En Accurate, el cartel depende del toggle "Live Transcript" de Settings:
     // - ON:  hay recognizer corriendo, mostramos texto o "Listening..."
     // - OFF: no hay recognizer, el cartel aclara que la IA transcribirá el audio.
+    val listeningText = stringResource(R.string.record_listening)
+    val recordingForAiText = stringResource(R.string.record_recording_for_ai)
+    val waitingVoiceText = stringResource(R.string.record_waiting_voice)
     val displayLiveText = when {
         recognizedText.isNotEmpty() -> recognizedText
-        recordMode == 1 && liveTranscriptEnabled -> "Listening... (audio is being saved for AI analysis)"
-        recordMode == 1 && !liveTranscriptEnabled -> "Recording audio... it will be transcribed by AI when you open the note."
-        else -> "Waiting for voice input..."
+        recordMode == 1 && liveTranscriptEnabled -> listeningText
+        recordMode == 1 && !liveTranscriptEnabled -> recordingForAiText
+        else -> waitingVoiceText
     }
 
     val scrollState = rememberScrollState()
@@ -213,10 +258,10 @@ fun RecordScreen(
                         permission?.release()
 
                         val msg = when {
-                            failCount == 0 && successCount > 1 -> "Imported $successCount files!"
-                            failCount == 0 -> "Imported successfully!"
-                            successCount == 0 -> "Failed to import any files. Ensure format is supported."
-                            else -> "Imported $successCount, failed $failCount."
+                            failCount == 0 && successCount > 1 -> context.getString(R.string.record_imported_multiple, successCount)
+                            failCount == 0 -> context.getString(R.string.record_imported_success)
+                            successCount == 0 -> context.getString(R.string.record_imported_none)
+                            else -> context.getString(R.string.record_imported_partial, successCount, failCount)
                         }
                         snackbarHostState.showSnackbar(msg)
                         if (firstImportedId != null && clipData.itemCount == 1) {
@@ -397,7 +442,7 @@ fun RecordScreen(
                                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp)
                                 ) {
                                     items(visibleNotes, key = { it.id }) { note ->
-                                        val displayTitle = if (note.title.isBlank()) "No title" else note.title
+                                        val displayTitle = if (note.title.isBlank()) stringResource(R.string.trash_empty_note) else note.title
                                         val randomPadding = remember(note.id) { (note.id * 23 % 40).dp }
 
                                         val noteInteraction = remember { MutableInteractionSource() }
@@ -540,7 +585,7 @@ fun RecordScreen(
                             AnimatedVisibility(visible = isExpanded) {
                                 Column {
                                     Text(
-                                        text = "Live Transcription",
+                                        text = stringResource(R.string.record_live_transcription),
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Bold
@@ -649,6 +694,10 @@ fun RecordScreen(
                                 },
                             contentAlignment = Alignment.Center
                         ) {
+                            val pauseCd = stringResource(R.string.record_pause_cd)
+                            val resumeCd = stringResource(R.string.record_resume_cd)
+                            val recordCd = stringResource(R.string.record_record_cd)
+                            val recordLabel = stringResource(R.string.record_record_button)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = when {
@@ -657,9 +706,9 @@ fun RecordScreen(
                                         else               -> Icons.Default.Mic
                                     },
                                     contentDescription = when {
-                                        isSplit && isPaused -> "Resume"
-                                        isSplit            -> "Pause"
-                                        else               -> "Record"
+                                        isSplit && isPaused -> resumeCd
+                                        isSplit            -> pauseCd
+                                        else               -> recordCd
                                     },
                                     tint = when {
                                         isSplit && !isPaused -> MaterialTheme.colorScheme.onSecondaryContainer
@@ -673,7 +722,7 @@ fun RecordScreen(
                                 if (!isSplit) {
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text(
-                                        text = "Record",
+                                        text = recordLabel,
                                         color = MaterialTheme.colorScheme.onPrimary,
                                         style = MaterialTheme.typography.titleMedium
                                     )
@@ -700,8 +749,10 @@ fun RecordScreen(
 
                                                 coroutineScope.launch {
                                                     val saved = viewModel.saveNote(recordMode, aiProvider)
+                                                    val savedMsg = context.getString(R.string.record_note_saved)
+                                                    val noTextMsg = context.getString(R.string.record_no_text_to_save)
                                                     snackbarHostState.showSnackbar(
-                                                        message = if (saved) "Note saved" else "No text to save",
+                                                        message = if (saved) savedMsg else noTextMsg,
                                                         duration = SnackbarDuration.Short
                                                     )
                                                 }
@@ -718,7 +769,7 @@ fun RecordScreen(
                                 } else {
                                     Icon(
                                         imageVector = Icons.Default.Stop,
-                                        contentDescription = "Stop",
+                                        contentDescription = stringResource(R.string.record_stop_cd),
                                         tint = MaterialTheme.colorScheme.onTertiary,
                                         modifier = Modifier.size(32.dp)
                                     )
@@ -752,7 +803,7 @@ fun RecordScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Audiotrack,
-                                    contentDescription = "Import audio",
+                                    contentDescription = stringResource(R.string.record_import_audio_cd),
                                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                     modifier = Modifier.size(28.dp)
                                 )
@@ -779,7 +830,7 @@ fun RecordScreen(
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            text = "Importing...",
+                            text = stringResource(R.string.record_importing),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -810,13 +861,13 @@ fun RecordScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            "Drop to import",
+                            stringResource(R.string.record_drop_to_import),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            "Audio files or .binot backups",
+                            stringResource(R.string.record_drop_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
@@ -836,7 +887,7 @@ fun RecordScreen(
                 val newId = onImportFile(uri)
                 isImporting = false
                 if (newId != null) onNoteClick(newId)
-                else snackbarHostState.showSnackbar("Failed to import audio file.")
+                else snackbarHostState.showSnackbar(context.getString(R.string.record_import_failed_audio))
             }
         }
     }
@@ -860,7 +911,7 @@ fun RecordScreen(
                     if (newId != null) {
                         onNoteClick(newId)
                     } else {
-                        snackbarHostState.showSnackbar("Failed to import audio file.")
+                        snackbarHostState.showSnackbar(context.getString(R.string.record_import_failed_audio))
                     }
                 }
             }
@@ -875,7 +926,7 @@ fun RecordScreen(
             },
             title = {
                 Text(
-                    text = "✨ Secret Question",
+                    text = stringResource(R.string.record_egg_question_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -883,7 +934,7 @@ fun RecordScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Who is the developer's sweetheart?",
+                        text = stringResource(R.string.record_egg_question_body),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -891,7 +942,7 @@ fun RecordScreen(
                         value = easterEggAnswer,
                         onValueChange = { if (it.length <= 5) easterEggAnswer = it },
                         singleLine = true,
-                        placeholder = { Text("Your answer...") },
+                        placeholder = { Text(stringResource(R.string.record_egg_answer_hint)) },
                         shape = RoundedCornerShape(16.dp)
                     )
                 }
@@ -906,7 +957,7 @@ fun RecordScreen(
                         easterEggAnswer = ""
                     }
                 ) {
-                    Text("Submit")
+                    Text(stringResource(R.string.record_egg_submit))
                 }
             },
             dismissButton = {
@@ -914,7 +965,7 @@ fun RecordScreen(
                     showEasterEggDialog = false
                     easterEggAnswer = ""
                 }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -934,7 +985,7 @@ fun RecordScreen(
                 ) {
                     Text(text = "💖", style = MaterialTheme.typography.displayMedium)
                     Text(
-                        text = "For Dinda",
+                        text = stringResource(R.string.record_egg_poem_title),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -946,7 +997,7 @@ fun RecordScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "In every line of code I write,\nin every bug I fix at night —\nit's always you I'm thinking of.\nYou are my favorite feature,\nmy most beautiful exception.\n\nForever yours,\nThe Developer 👨‍💻",
+                            text = stringResource(R.string.record_egg_poem),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             textAlign = TextAlign.Center,
@@ -954,7 +1005,7 @@ fun RecordScreen(
                         )
                     }
                     Text(
-                        text = "💻 With all the love in the codebase 💻",
+                        text = stringResource(R.string.record_egg_signature),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -966,7 +1017,7 @@ fun RecordScreen(
                     onClick = { showLovePopup = false },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("✨ Close")
+                    Text(stringResource(R.string.record_egg_close))
                 }
             }
         )

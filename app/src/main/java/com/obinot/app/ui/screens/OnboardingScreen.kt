@@ -36,12 +36,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.obinot.app.R
 import com.obinot.app.data.Content
 import com.obinot.app.data.GenerateContentRequest
 import com.obinot.app.data.GroqChatRequest
@@ -163,15 +165,22 @@ fun OnboardingScreen(
                                             keyState = KeyVerificationState.ERROR
                                             keyErrorMessage = when (e) {
                                                 is HttpException -> when (e.code()) {
-                                                    400 -> if (aiProvider == 0) "Invalid API Key. Google rejected it." else "Server rejected the test. Check your key."
-                                                    401 -> "The key is invalid or unauthorized."
-                                                    403 -> "Access denied. Your key might be restricted by the provider."
-                                                    429 -> "Rate limit exceeded. The provider's server is busy."
-                                                    else -> "Server rejected the test (Code: ${e.code()}). Check your key."
+                                                    400 -> if (aiProvider == 0) {
+                                                        context.getString(R.string.onboarding_error_400_gemini)
+                                                    } else {
+                                                        context.getString(R.string.onboarding_error_400_groq)
+                                                    }
+                                                    401 -> context.getString(R.string.onboarding_error_401)
+                                                    403 -> context.getString(R.string.onboarding_error_403)
+                                                    429 -> context.getString(R.string.onboarding_error_429)
+                                                    else -> context.getString(R.string.onboarding_error_server_code, e.code())
                                                 }
                                                 is UnknownHostException, is ConnectException, is SocketTimeoutException ->
-                                                    "Network error. We couldn't reach the server."
-                                                else -> "Unexpected error: ${e.localizedMessage}"
+                                                    context.getString(R.string.onboarding_error_network)
+                                                else -> context.getString(
+                                                    R.string.onboarding_error_unexpected,
+                                                    e.localizedMessage ?: e.javaClass.simpleName
+                                                )
                                             }
                                         }
                                     }
@@ -186,7 +195,8 @@ fun OnboardingScreen(
                         modifier = Modifier.height(56.dp)
                     ) {
                         Text(
-                            text = if (pagerState.currentPage == 4) "Verify Key" else "Next",
+                            text = if (pagerState.currentPage == 4) stringResource(R.string.onboarding_verify_key)
+                                   else stringResource(R.string.onboarding_next),
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -221,7 +231,7 @@ fun OnboardingScreen(
                     // ---------- PAGE 0: Welcome ----------
                     0 -> {
                         Text(
-                            text = "Welcome to Obinot.",
+                            text = stringResource(R.string.onboarding_welcome_title),
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.primary,
@@ -229,7 +239,7 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Text(
-                            text = "Your intelligent voice workspace. Speak naturally, and let advanced AI structure your thoughts perfectly.",
+                            text = stringResource(R.string.onboarding_welcome_body),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                             textAlign = TextAlign.Center
@@ -239,7 +249,7 @@ fun OnboardingScreen(
                     // ---------- PAGE 1: Name ----------
                     1 -> {
                         Text(
-                            text = "Let's get acquainted.",
+                            text = stringResource(R.string.onboarding_name_title),
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -247,7 +257,7 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "What should we call you?",
+                            text = stringResource(R.string.onboarding_name_question),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -256,7 +266,7 @@ fun OnboardingScreen(
                         OutlinedTextField(
                             value = nameInput,
                             onValueChange = { nameInput = it },
-                            label = { Text("Enter your name") },
+                            label = { Text(stringResource(R.string.onboarding_name_hint)) },
                             singleLine = true,
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -266,7 +276,7 @@ fun OnboardingScreen(
                     // ---------- PAGE 2: Task + Format ----------
                     2 -> {
                         Text(
-                            text = "Tailor your experience.",
+                            text = stringResource(R.string.onboarding_personalize_title),
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -274,7 +284,7 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "How would you like Obinot to process your voice by default? You can change this later.",
+                            text = stringResource(R.string.onboarding_personalize_body),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -282,7 +292,7 @@ fun OnboardingScreen(
                         Spacer(modifier = Modifier.height(32.dp))
 
                         Text(
-                            text = "Processing Task",
+                            text = stringResource(R.string.onboarding_task_label),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp)
@@ -292,23 +302,23 @@ fun OnboardingScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                                 onClick = { aiTask = 0 },
                                 selected = aiTask == 0
-                            ) { Text("Tidy Up", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            ) { Text(stringResource(R.string.onboarding_task_tidy), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                                 onClick = { aiTask = 1 },
                                 selected = aiTask == 1
-                            ) { Text("Summary", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            ) { Text(stringResource(R.string.onboarding_task_summary), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                                 onClick = { aiTask = 2 },
                                 selected = aiTask == 2
-                            ) { Text("Analyze", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            ) { Text(stringResource(R.string.onboarding_task_analyze), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
 
                         Spacer(modifier = Modifier.height(24.dp))
 
                         Text(
-                            text = "Output Format",
+                            text = stringResource(R.string.onboarding_format_label),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp)
@@ -318,19 +328,19 @@ fun OnboardingScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                                 onClick = { aiFormat = 0 },
                                 selected = aiFormat == 0
-                            ) { Text("Paragraphs") }
+                            ) { Text(stringResource(R.string.onboarding_format_paragraphs)) }
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                                 onClick = { aiFormat = 1 },
                                 selected = aiFormat == 1
-                            ) { Text("Bullets") }
+                            ) { Text(stringResource(R.string.onboarding_format_bullets)) }
                         }
                     }
 
                     // ---------- PAGE 3: Provider + API key ----------
                     3 -> {
                         Text(
-                            text = "Connect the brain.",
+                            text = stringResource(R.string.onboarding_provider_title),
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -338,7 +348,7 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Obinot needs an AI engine to operate. Choose a provider and claim your free access key.",
+                            text = stringResource(R.string.onboarding_provider_body),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -350,12 +360,12 @@ fun OnboardingScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                                 onClick = { aiProvider = 0 },
                                 selected = aiProvider == 0
-                            ) { Text("Google Gemini") }
+                            ) { Text(stringResource(R.string.onboarding_provider_gemini)) }
                             SegmentedButton(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                                 onClick = { aiProvider = 1 },
                                 selected = aiProvider == 1
-                            ) { Text("Groq AI") }
+                            ) { Text(stringResource(R.string.onboarding_provider_groq)) }
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -363,7 +373,7 @@ fun OnboardingScreen(
                         AnimatedContent(targetState = aiProvider, label = "provider_info") { provider ->
                             if (provider == 1) {
                                 Text(
-                                    text = "Groq is highly recommended for its blazing fast speed.",
+                                    text = stringResource(R.string.onboarding_provider_groq_hint),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Bold,
@@ -371,7 +381,7 @@ fun OnboardingScreen(
                                 )
                             } else {
                                 Text(
-                                    text = "Gemini is great for processing very long audio recordings.",
+                                    text = stringResource(R.string.onboarding_provider_gemini_hint),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -399,7 +409,7 @@ fun OnboardingScreen(
                             Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Get Free API Key",
+                                text = stringResource(R.string.onboarding_get_api_key),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
@@ -410,7 +420,7 @@ fun OnboardingScreen(
                         OutlinedTextField(
                             value = apiKeyInput,
                             onValueChange = { apiKeyInput = it },
-                            label = { Text("Paste your API Key here") },
+                            label = { Text(stringResource(R.string.onboarding_api_key_hint)) },
                             leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
                             visualTransformation = PasswordVisualTransformation(),
                             singleLine = true,
@@ -422,7 +432,7 @@ fun OnboardingScreen(
                     // ---------- PAGE 4: Auto Compression ----------
                     4 -> {
                         Text(
-                            text = "One last thing.",
+                            text = stringResource(R.string.onboarding_last_thing_title),
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -430,7 +440,7 @@ fun OnboardingScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Some AI providers have a size limit on audio uploads. Obinot can shrink long recordings automatically before sending them, so nothing gets rejected.",
+                            text = stringResource(R.string.onboarding_last_thing_body),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -449,7 +459,7 @@ fun OnboardingScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Auto Compression",
+                                text = stringResource(R.string.onboarding_compression_label),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -460,7 +470,11 @@ fun OnboardingScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                         ) {
-                            val labels = listOf("Off", "Balanced", "Max")
+                            val labels = listOf(
+                                stringResource(R.string.onboarding_compression_off),
+                                stringResource(R.string.onboarding_compression_balanced),
+                                stringResource(R.string.onboarding_compression_max),
+                            )
                             labels.forEachIndexed { index, label ->
                                 ToggleButton(
                                     checked = autoCompression == index,
@@ -483,9 +497,9 @@ fun OnboardingScreen(
 
                         Text(
                             text = when (autoCompression) {
-                                0 -> "No compression. Files over 25 MB will fail on Groq."
-                                1 -> "Best quality. Targets just under the upload limit. Recommended."
-                                else -> "Smaller files. Still great for voice. Best for slow connections."
+                                0 -> stringResource(R.string.onboarding_compression_off_desc)
+                                1 -> stringResource(R.string.onboarding_compression_balanced_desc)
+                                else -> stringResource(R.string.onboarding_compression_max_desc)
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -515,14 +529,18 @@ fun OnboardingScreen(
                                         )
                                         Spacer(modifier = Modifier.height(32.dp))
                                         Text(
-                                            text = "Connecting to ${if (aiProvider == 0) "Gemini" else "Groq"}...",
+                                            text = stringResource(
+                                                R.string.onboarding_connecting,
+                                                if (aiProvider == 0) stringResource(R.string.onboarding_provider_gemini)
+                                                else stringResource(R.string.onboarding_provider_groq)
+                                            ),
                                             style = MaterialTheme.typography.headlineSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Spacer(modifier = Modifier.height(12.dp))
                                         Text(
-                                            text = "Verifying your access key. This will only take a moment.",
+                                            text = stringResource(R.string.onboarding_verifying),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = TextAlign.Center
@@ -544,14 +562,14 @@ fun OnboardingScreen(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Check,
-                                                contentDescription = "Success",
+                                                contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.size(48.dp)
                                             )
                                         }
                                         Spacer(modifier = Modifier.height(32.dp))
                                         Text(
-                                            text = "Connection Established",
+                                            text = stringResource(R.string.onboarding_connected_title),
                                             style = MaterialTheme.typography.headlineMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary,
@@ -559,7 +577,7 @@ fun OnboardingScreen(
                                         )
                                         Spacer(modifier = Modifier.height(12.dp))
                                         Text(
-                                            text = "Your API key is active. The AI engine is fully configured and ready to organize your thoughts.",
+                                            text = stringResource(R.string.onboarding_connected_body),
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = TextAlign.Center
@@ -587,7 +605,7 @@ fun OnboardingScreen(
                                             expandOnPress = 0.dp
                                         ) {
                                             Text(
-                                                text = "Start Workspace",
+                                                text = stringResource(R.string.onboarding_start_workspace),
                                                 fontSize = 18.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -609,14 +627,14 @@ fun OnboardingScreen(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Error,
-                                                contentDescription = "Error",
+                                                contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.error,
                                                 modifier = Modifier.size(48.dp)
                                             )
                                         }
                                         Spacer(modifier = Modifier.height(32.dp))
                                         Text(
-                                            text = "Connection Failed",
+                                            text = stringResource(R.string.onboarding_failed_title),
                                             style = MaterialTheme.typography.headlineMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.error,
@@ -644,7 +662,7 @@ fun OnboardingScreen(
                                             expandOnPress = 0.dp
                                         ) {
                                             Text(
-                                                text = "Review API Key",
+                                                text = stringResource(R.string.onboarding_review_key),
                                                 fontSize = 16.sp,
                                                 fontWeight = FontWeight.Bold
                                             )

@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,9 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.obinot.app.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,22 +83,24 @@ data class BinotNoteFileInfo(
 /**
  * Órdenes de la pestaña Audio. Cada uno lleva el fragmento SQL que se pasa
  * directo al MediaStore, para que la paginación server-side respete el orden.
+ *
+ * `labelRes` apunta a un string traducible. El SQL no se traduce.
  */
-enum class AudioSortOrder(val label: String, val sql: String) {
-    DATE_MODIFIED_DESC("Newest", "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"),
-    DATE_MODIFIED_ASC("Oldest", "${MediaStore.Audio.Media.DATE_MODIFIED} ASC"),
-    NAME_ASC("Name (A-Z)", "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE ASC"),
-    NAME_DESC("Name (Z-A)", "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE DESC"),
-    DURATION_DESC("Longest", "${MediaStore.Audio.Media.DURATION} DESC"),
-    DURATION_ASC("Shortest", "${MediaStore.Audio.Media.DURATION} ASC"),
-    SIZE_DESC("Largest", "${MediaStore.Audio.Media.SIZE} DESC"),
-    SIZE_ASC("Smallest", "${MediaStore.Audio.Media.SIZE} ASC")
+enum class AudioSortOrder(@StringRes val labelRes: Int, val sql: String) {
+    DATE_MODIFIED_DESC(R.string.sort_newest, "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"),
+    DATE_MODIFIED_ASC(R.string.sort_oldest, "${MediaStore.Audio.Media.DATE_MODIFIED} ASC"),
+    NAME_ASC(R.string.sort_name_asc, "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE ASC"),
+    NAME_DESC(R.string.sort_name_desc, "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE DESC"),
+    DURATION_DESC(R.string.sort_longest, "${MediaStore.Audio.Media.DURATION} DESC"),
+    DURATION_ASC(R.string.sort_shortest, "${MediaStore.Audio.Media.DURATION} ASC"),
+    SIZE_DESC(R.string.sort_largest, "${MediaStore.Audio.Media.SIZE} DESC"),
+    SIZE_ASC(R.string.sort_smallest, "${MediaStore.Audio.Media.SIZE} ASC")
 }
 
 /** Qué pestaña del picker unificado está activa. */
-enum class PickerTab(val label: String) {
-    AUDIO("Audio"),
-    NOTES(".binot Notes")
+enum class PickerTab(@StringRes val labelRes: Int) {
+    AUDIO(R.string.picker_tab_audio),
+    NOTES(R.string.picker_tab_notes)
 }
 
 /** Tamaño de página para paginar MediaStore. 150 es un buen balance entre
@@ -238,7 +243,7 @@ fun ObinotFilePickerSheet(
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = "Import to Obinot",
+                    text = stringResource(R.string.picker_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -252,7 +257,7 @@ fun ObinotFilePickerSheet(
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = PickerTab.entries.size),
                         onClick = { activeTab = tab },
                         selected = activeTab == tab
-                    ) { Text(tab.label) }
+                    ) { Text(stringResource(tab.labelRes)) }
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -269,7 +274,7 @@ fun ObinotFilePickerSheet(
                 ) {
                     Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Browse files")
+                    Text(stringResource(R.string.picker_browse_files))
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -285,20 +290,20 @@ fun ObinotFilePickerSheet(
                     if (!hasPermission) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "Obinot needs permission to read files on this device.",
+                                text = stringResource(R.string.picker_permission_message),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(12.dp))
                             OutlinedButton(onClick = { permissionLauncher.launch(storagePermission) }) {
-                                Text("Grant access")
+                                Text(stringResource(R.string.picker_grant_access))
                             }
                         }
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = if (activeTab == PickerTab.AUDIO) "No audio files found."
-                                       else "No .binot notes found here. On newer Android versions, only notes exported by Obinot itself show up automatically — use \"Browse files\" above for anything else.",
+                                text = if (activeTab == PickerTab.AUDIO) stringResource(R.string.picker_no_audio)
+                                       else stringResource(R.string.picker_no_notes),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -361,7 +366,7 @@ private fun LoadMoreRow(isLoading: Boolean, onClick: () -> Unit) {
             )
         } else {
             OutlinedButton(onClick = onClick) {
-                Text("Load more")
+                Text(stringResource(R.string.picker_load_more))
             }
         }
     }
@@ -381,7 +386,7 @@ private fun SortOrderRow(
         ) {
             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(current.label)
+            Text(stringResource(current.labelRes))
         }
         DropdownMenu(
             expanded = expanded,
@@ -389,7 +394,7 @@ private fun SortOrderRow(
         ) {
             AudioSortOrder.entries.forEach { order ->
                 DropdownMenuItem(
-                    text = { Text(order.label) },
+                    text = { Text(stringResource(order.labelRes)) },
                     onClick = {
                         onSelect(order)
                         expanded = false

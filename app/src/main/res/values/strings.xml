@@ -1,7 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Obinot</string>
 
-    <!-- New Strings for Recording Mode -->
+    <!-- ============================================================ -->
+    <!-- Existing strings from Binot original                          -->
+    <!-- ============================================================ -->
+
     <string name="recording_mode_title">Recording Mode</string>
     <string name="mode_fast">Fast (Google)</string>
     <string name="mode_accurate">Accurate (Gemini)</string>
@@ -9,4 +13,247 @@
     <string name="mode_info_desc">Fast (Google):\nFaster, battery efficient, moderate accuracy. Real-time transcription.\n\nAccurate (Gemini):\nHigher accuracy, requires internet. Transcription processes later when you open the note. Live transcription is disabled.</string>
     <string name="direct_record_live_text">Direct recording mode is active.\nLive transcription is disabled.</string>
     <string name="pending_transcription_text">Pending Transcription</string>
+
+    <!-- ============================================================ -->
+    <!-- Common (shared across screens)                                -->
+    <!-- ============================================================ -->
+
+    <string name="common_cancel">Cancel</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_back">Back</string>
+    <string name="common_restore">Restore</string>
+    <string name="common_search">Search</string>
+    <string name="common_undo">Undo</string>
+    <string name="common_options_cd">Options</string>
+    <string name="common_selected_cd">Selected</string>
+
+    <!-- ============================================================ -->
+    <!-- Trash screen                                                  -->
+    <!-- ============================================================ -->
+
+    <string name="trash_title">Trash</string>
+    <string name="trash_selected_count">%1$d Selected</string>
+    <string name="trash_empty_state">Trash is empty.</string>
+    <string name="trash_empty_button">Empty Trash</string>
+    <string name="trash_empty_dialog_title">Empty Trash?</string>
+    <string name="trash_empty_dialog_body">All notes in the trash will be permanently deleted. This action cannot be undone.</string>
+    <string name="trash_empty_dialog_confirm">Empty</string>
+    <string name="trash_delete_dialog_title">Delete Permanently?</string>
+    <string name="trash_delete_dialog_body">Selected notes will be permanently deleted. This action cannot be undone.</string>
+    <string name="trash_delete_forever_cd">Delete Permanently</string>
+    <string name="trash_empty_note">Empty Note</string>
+
+    <!-- ============================================================ -->
+    <!-- File picker (Audio + .binot notes)                            -->
+    <!-- ============================================================ -->
+
+    <string name="picker_title">Import to Obinot</string>
+    <string name="picker_tab_audio">Audio</string>
+    <string name="picker_tab_notes">.binot Notes</string>
+    <string name="picker_browse_files">Browse files</string>
+    <string name="picker_permission_message">Obinot needs permission to read files on this device.</string>
+    <string name="picker_grant_access">Grant access</string>
+    <string name="picker_no_audio">No audio files found.</string>
+    <string name="picker_no_notes">No .binot notes found here. On newer Android versions, only notes exported by Obinot itself show up automatically — use Browse files above for anything else.</string>
+    <string name="picker_load_more">Load more</string>
+
+    <!-- Sort orders for the audio tab -->
+    <string name="sort_newest">Newest</string>
+    <string name="sort_oldest">Oldest</string>
+    <string name="sort_name_asc">Name (A-Z)</string>
+    <string name="sort_name_desc">Name (Z-A)</string>
+    <string name="sort_longest">Longest</string>
+    <string name="sort_shortest">Shortest</string>
+    <string name="sort_largest">Largest</string>
+    <string name="sort_smallest">Smallest</string>
+
+    <!-- ============================================================ -->
+    <!-- Record screen                                                 -->
+    <!-- ============================================================ -->
+
+    <string name="record_greeting_morning_1">Good morning,</string>
+    <string name="record_greeting_morning_2">Rise and shine,</string>
+    <string name="record_greeting_morning_3">A fresh start,</string>
+    <string name="record_greeting_morning_4">Morning inspiration,</string>
+    <string name="record_greeting_morning_5">Start your day right,</string>
+
+    <string name="record_greeting_afternoon_1">Good afternoon,</string>
+    <string name="record_greeting_afternoon_2">Midday thoughts,</string>
+    <string name="record_greeting_afternoon_3">Keep it going,</string>
+    <string name="record_greeting_afternoon_4">Stay productive,</string>
+    <string name="record_greeting_afternoon_5">Afternoon check-in,</string>
+
+    <string name="record_greeting_evening_1">Good evening,</string>
+    <string name="record_greeting_evening_2">Winding down,</string>
+    <string name="record_greeting_evening_3">Evening reflection,</string>
+    <string name="record_greeting_evening_4">Time to relax,</string>
+    <string name="record_greeting_evening_5">Sunset thoughts,</string>
+
+    <string name="record_greeting_night_1">Late night thoughts,</string>
+    <string name="record_greeting_night_2">Midnight notes,</string>
+    <string name="record_greeting_night_3">Still awake?,</string>
+    <string name="record_greeting_night_4">Quiet hours,</string>
+    <string name="record_greeting_night_5">Rest well,</string>
+
+    <string name="record_guest">Guest</string>
+    <string name="record_listening">Listening… (audio is being saved for AI analysis)</string>
+    <string name="record_recording_for_ai">Recording audio… it will be transcribed by AI when you open the note.</string>
+    <string name="record_waiting_voice">Waiting for voice input…</string>
+    <string name="record_live_transcription">Live Transcription</string>
+    <string name="record_record_button">Record</string>
+    <string name="record_pause_cd">Pause</string>
+    <string name="record_resume_cd">Resume</string>
+    <string name="record_record_cd">Record</string>
+    <string name="record_stop_cd">Stop</string>
+    <string name="record_import_audio_cd">Import audio</string>
+    <string name="record_importing">Importing…</string>
+    <string name="record_drop_to_import">Drop to import</string>
+    <string name="record_drop_subtitle">Audio files or .binot backups</string>
+    <string name="record_note_saved">Note saved</string>
+    <string name="record_no_text_to_save">No text to save</string>
+    <string name="record_import_failed_audio">Failed to import audio file.</string>
+    <string name="record_imported_multiple">Imported %1$d files!</string>
+    <string name="record_imported_success">Imported successfully!</string>
+    <string name="record_imported_none">Failed to import any files. Ensure format is supported.</string>
+    <string name="record_imported_partial">Imported %1$d, failed %2$d.</string>
+
+    <!-- Easter egg (visible after 5 taps on greeting) -->
+    <string name="record_egg_question_title">✨ Secret Question</string>
+    <string name="record_egg_question_body">Who is the developer\'s sweetheart?</string>
+    <string name="record_egg_answer_hint">Your answer…</string>
+    <string name="record_egg_submit">Submit</string>
+    <string name="record_egg_poem_title">For Dinda</string>
+    <string name="record_egg_poem">In every line of code I write,\nin every bug I fix at night —\nit\'s always you I\'m thinking of.\nYou are my favorite feature,\nmy most beautiful exception.\n\nForever yours,\nThe Developer 👨‍💻</string>
+    <string name="record_egg_signature">💻 With all the love in the codebase 💻</string>
+    <string name="record_egg_close">✨ Close</string>
+
+    <!-- ============================================================ -->
+    <!-- Onboarding                                                    -->
+    <!-- ============================================================ -->
+
+    <string name="onboarding_welcome_title">Welcome to Obinot.</string>
+    <string name="onboarding_welcome_body">Your intelligent voice workspace. Speak naturally, and let advanced AI structure your thoughts perfectly.</string>
+    <string name="onboarding_name_title">Let\'s get acquainted.</string>
+    <string name="onboarding_name_question">What should we call you?</string>
+    <string name="onboarding_name_hint">Enter your name</string>
+    <string name="onboarding_personalize_title">Tailor your experience.</string>
+    <string name="onboarding_personalize_body">How would you like Obinot to process your voice by default? You can change this later.</string>
+    <string name="onboarding_task_label">Processing Task</string>
+    <string name="onboarding_task_tidy">Tidy Up</string>
+    <string name="onboarding_task_summary">Summary</string>
+    <string name="onboarding_task_analyze">Analyze</string>
+    <string name="onboarding_format_label">Output Format</string>
+    <string name="onboarding_format_paragraphs">Paragraphs</string>
+    <string name="onboarding_format_bullets">Bullets</string>
+    <string name="onboarding_provider_title">Connect the brain.</string>
+    <string name="onboarding_provider_body">Obinot needs an AI engine to operate. Choose a provider and claim your free access key.</string>
+    <string name="onboarding_provider_gemini">Google Gemini</string>
+    <string name="onboarding_provider_groq">Groq AI</string>
+    <string name="onboarding_provider_groq_hint">Groq is highly recommended for its blazing fast speed.</string>
+    <string name="onboarding_provider_gemini_hint">Gemini is great for processing very long audio recordings.</string>
+    <string name="onboarding_get_api_key">Get Free API Key</string>
+    <string name="onboarding_api_key_hint">Paste your API Key here</string>
+    <string name="onboarding_last_thing_title">One last thing.</string>
+    <string name="onboarding_last_thing_body">Some AI providers have a size limit on audio uploads. Obinot can shrink long recordings automatically before sending them, so nothing gets rejected.</string>
+    <string name="onboarding_compression_label">Auto Compression</string>
+    <string name="onboarding_compression_off">Off</string>
+    <string name="onboarding_compression_balanced">Balanced</string>
+    <string name="onboarding_compression_max">Max</string>
+    <string name="onboarding_compression_off_desc">No compression. Files over 25 MB will fail on Groq.</string>
+    <string name="onboarding_compression_balanced_desc">Best quality. Targets just under the upload limit. Recommended.</string>
+    <string name="onboarding_compression_max_desc">Smaller files. Still great for voice. Best for slow connections.</string>
+    <string name="onboarding_connecting">Connecting to %1$s…</string>
+    <string name="onboarding_verifying">Verifying your access key. This will only take a moment.</string>
+    <string name="onboarding_connected_title">Connection Established</string>
+    <string name="onboarding_connected_body">Your API key is active. The AI engine is fully configured and ready to organize your thoughts.</string>
+    <string name="onboarding_start_workspace">Start Workspace</string>
+    <string name="onboarding_failed_title">Connection Failed</string>
+    <string name="onboarding_review_key">Review API Key</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_verify_key">Verify Key</string>
+
+    <!-- Onboarding error messages -->
+    <string name="onboarding_error_400_gemini">Invalid API Key. Google rejected it.</string>
+    <string name="onboarding_error_400_groq">Server rejected the test. Check your key.</string>
+    <string name="onboarding_error_401">The key is invalid or unauthorized.</string>
+    <string name="onboarding_error_403">Access denied. Your key might be restricted by the provider.</string>
+    <string name="onboarding_error_429">Rate limit exceeded. The provider\'s server is busy.</string>
+    <string name="onboarding_error_server_code">Server rejected the test (Code: %1$d). Check your key.</string>
+    <string name="onboarding_error_network">Network error. We couldn\'t reach the server.</string>
+    <string name="onboarding_error_unexpected">Unexpected error: %1$s</string>
+
+    <!-- ============================================================ -->
+    <!-- History screen                                                -->
+    <!-- ============================================================ -->
+
+    <string name="history_sort_by">Sort By</string>
+    <string name="history_sort_alpha">A–Z</string>
+    <string name="history_labels_header">Labels</string>
+    <string name="history_labels_delete_cd">Delete Selected Labels</string>
+    <string name="history_labels_multiselect_cd">Toggle Multi-Select</string>
+    <string name="history_all_notes">All Notes</string>
+    <string name="history_label_edit_cd">Edit label and color</string>
+    <string name="history_create_label">Create New Label</string>
+    <string name="history_selected_count">%1$d Selected</string>
+    <string name="history_search_placeholder">Search notes…</string>
+    <string name="history_toggle_view_cd">Toggle View Mode</string>
+    <string name="history_no_results">No results found.</string>
+    <string name="history_no_notes">No notes yet.\nStart recording or import audio!</string>
+    <string name="history_section_pinned">Pinned</string>
+    <string name="history_section_collection">Collection</string>
+    <string name="history_fab_import">Import File</string>
+    <string name="history_drop_to_import">Drop audio to import</string>
+    <string name="history_drop_subtitle">Audio files or .binot backups</string>
+    <string name="history_label_name">Label Name</string>
+    <string name="history_label_color">Color</string>
+    <string name="history_create">Create</string>
+    <string name="history_edit_label">Edit Label</string>
+    <string name="history_delete_label">Delete Label</string>
+    <string name="history_save">Save</string>
+    <string name="history_delete_labels_title">Delete Labels</string>
+    <string name="history_delete_labels_body">%1$d label(s) will be removed from all notes. This can\'t be undone.</string>
+    <string name="history_delete_notes_title">Delete Notes</string>
+    <string name="history_delete_notes_body">Are you sure you want to delete %1$d notes?</string>
+    <string name="history_waiting_ai">⏳ Waiting for AI transcription…</string>
+    <string name="history_menu_cd">Menu</string>
+    <string name="history_close_cd">Close</string>
+
+    <!-- Selection dropdown menu (History, in selection mode) -->
+    <string name="select_all">Select All</string>
+    <string name="pin">Pin</string>
+    <string name="unpin">Unpin</string>
+    <string name="clone">Clone</string>
+    <string name="share">Share</string>
+
+    <!-- ============================================================ -->
+    <!-- Snackbars & sharing                                           -->
+    <!-- ============================================================ -->
+
+    <string name="snackbar_importing">Importing file…</string>
+    <string name="snackbar_import_failed">Failed to import file! Ensure the format is supported.</string>
+    <string name="snackbar_generating_binot">Generating .binot file…</string>
+    <string name="snackbar_generate_failed">Failed to generate file.</string>
+    <string name="snackbar_note_moved_to_trash">Note moved to Trash</string>
+    <string name="share_chooser_title">Share .binot note via</string>
+    <string name="share_text_binot">Binot Note: %1$s</string>
+
+    <!-- ============================================================ -->
+    <!-- Update sheet                                                  -->
+    <!-- ============================================================ -->
+
+    <string name="update_available_title">New Update Available!</string>
+    <string name="update_version_ready">Version %1$s is ready to download.</string>
+    <string name="update_default_body">Performance improvements and new features.</string>
+    <string name="update_download_button">Download Update (APK)</string>
+    <string name="update_view_github">View on GitHub</string>
+    <string name="update_icon_cd">Update</string>
+
+    <!-- ============================================================ -->
+    <!-- Plurals                                                       -->
+    <!-- ============================================================ -->
+
+    <plurals name="notes_moved_to_trash">
+        <item quantity="one">1 note moved to Trash</item>
+        <item quantity="other">%1$d notes moved to Trash</item>
+    </plurals>
 </resources>

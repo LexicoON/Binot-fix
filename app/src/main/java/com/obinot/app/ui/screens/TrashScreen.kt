@@ -27,9 +27,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.obinot.app.R
 import com.obinot.app.data.NoteEntity
 import com.obinot.app.ui.components.BouncyIconButton
 import com.obinot.app.viewmodel.HistoryViewModel
@@ -62,14 +64,14 @@ fun TrashScreen(
                 ) {
                     TopAppBar(
                         windowInsets = WindowInsets(top = safeTopMargin),
-                        title = { Text("${selectedNotes.size} Selected") },
+                        title = { Text(stringResource(R.string.trash_selected_count, selectedNotes.size)) },
                         navigationIcon = {
                             // expandOnPress = 3.dp: pegado al borde izquierdo.
                             BouncyIconButton(
                                 onClick = { selectionMode = false; selectedNotes = emptySet() },
                                 expandOnPress = 3.dp
                             ) {
-                                Icon(Icons.Default.Close, "Cancel")
+                                Icon(Icons.Default.Close, stringResource(R.string.common_cancel))
                             }
                         },
                         actions = {
@@ -82,14 +84,20 @@ fun TrashScreen(
                                     selectedNotes = emptySet()
                                 },
                                 expandOnPress = 3.dp
-                            ) { Icon(Icons.Default.Restore, "Restore") }
+                            ) { Icon(Icons.Default.Restore, stringResource(R.string.common_restore)) }
                             BouncyIconButton(
                                 onClick = {
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     showDeleteConfirmDialog = true
                                 },
                                 expandOnPress = 3.dp
-                            ) { Icon(Icons.Default.DeleteForever, "Delete Permanently", tint = MaterialTheme.colorScheme.error) }
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteForever,
+                                    stringResource(R.string.trash_delete_forever_cd),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                     )
@@ -97,20 +105,23 @@ fun TrashScreen(
             } else {
                 TopAppBar(
                     windowInsets = WindowInsets(top = safeTopMargin),
-                    title = { Text("Trash") },
+                    title = { Text(stringResource(R.string.trash_title)) },
                     navigationIcon = {
                         // Pegado al borde izquierdo.
                         BouncyIconButton(
                             onClick = onNavigateBack,
                             expandOnPress = 3.dp
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
                         }
                     },
                     actions = {
                         if (trashedNotes.isNotEmpty()) {
                             TextButton(onClick = { showEmptyTrashDialog = true }) {
-                                Text("Empty Trash", color = MaterialTheme.colorScheme.error)
+                                Text(
+                                    stringResource(R.string.trash_empty_button),
+                                    color = MaterialTheme.colorScheme.error
+                                )
                             }
                         }
                     },
@@ -121,7 +132,11 @@ fun TrashScreen(
     ) { innerPadding ->
         if (trashedNotes.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                Text("Trash is empty.", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.trash_empty_state),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         } else {
             LazyVerticalStaggeredGrid(
@@ -157,32 +172,50 @@ fun TrashScreen(
     if (showEmptyTrashDialog) {
         AlertDialog(
             onDismissRequest = { showEmptyTrashDialog = false },
-            title = { Text("Empty Trash?") },
-            text = { Text("All notes in the trash will be permanently deleted. This action cannot be undone.") },
+            title = { Text(stringResource(R.string.trash_empty_dialog_title)) },
+            text = { Text(stringResource(R.string.trash_empty_dialog_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.emptyTrash()
                     showEmptyTrashDialog = false
-                }) { Text("Empty", color = MaterialTheme.colorScheme.error) }
+                }) {
+                    Text(
+                        stringResource(R.string.trash_empty_dialog_confirm),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             },
-            dismissButton = { TextButton(onClick = { showEmptyTrashDialog = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = { showEmptyTrashDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
         )
     }
 
     if (showDeleteConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("Delete Permanently?") },
-            text = { Text("Selected notes will be permanently deleted. This action cannot be undone.") },
+            title = { Text(stringResource(R.string.trash_delete_dialog_title)) },
+            text = { Text(stringResource(R.string.trash_delete_dialog_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deletePermanentlyMultiple(selectedNotes)
                     showDeleteConfirmDialog = false
                     selectionMode = false
                     selectedNotes = emptySet()
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }) {
+                    Text(
+                        stringResource(R.string.common_delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirmDialog = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
         )
     }
 }
@@ -198,7 +231,7 @@ fun TrashedNoteCard(
 ) {
     val minHeight = remember(note.id) { kotlin.random.Random(note.id).nextInt(140, 221).dp }
     val formatter = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
-    val displayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else "Empty Note"
+    val displayText = if (!note.summary.isNullOrEmpty()) note.summary else if (note.rawText.isNotBlank()) note.rawText else stringResource(R.string.trash_empty_note)
 
     val interactionSource = remember { MutableInteractionSource() }
     val cardScale = remember { Animatable(1f) }
