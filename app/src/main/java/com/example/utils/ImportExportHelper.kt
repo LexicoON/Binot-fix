@@ -3,6 +3,7 @@ package com.example.utils
 import android.content.Context
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.example.data.LabelRepository
 import com.example.data.NoteEntity
 import com.example.data.NoteRepository
 import kotlinx.coroutines.Dispatchers
@@ -30,23 +31,58 @@ object ImportExportHelper {
     private const val MEMORY_COPY_THRESHOLD = 5L * 1024 * 1024
 
     /**
+     * Versión actual del formato .binot. v1 = Binot original, v2 = Obinot.
+     * El importador acepta ambas y degrada con gracia.
+     */
+    private const val BINOT_FORMAT_VERSION = 2
+
+    /**
      * Exporta una nota al formato .binot (ZIP con data.json + audio.mp4 opcional).
      *
-     * El nombre de la extensión (.binot) y el formato interno se mantienen
-     * compatibles con el Binot original para que archivos exportados desde
-     * una app se puedan importar en la otra sin conversión.
+     * Formato v2 (Obinot):
+     *   data.json           — mismo formato que v1 + "version": 2
+     *   audio.mp4           — opcional, igual que v1
+     *   obinot_meta.json    — NUEVO: metadatos extendidos (colores de labels, timestamp)
+     *
+     * Los lectores v1 (Binot original) siguen funcionando porque ignoran entradas
+     * que no conocen y data.json mantiene todos los campos v1 con la misma forma.
+     *
+     * @param labelColors mapa nombre→hex de los labels asignados a ESTA nota. Si está
+     *                    vacío o no contiene el label, el receptor usará el color
+     *                    default del tema. Solo se incluyen los labels que la nota
+     *                    efectivamente usa (no todo el catálogo global).
      */
-    suspend fun exportNoteToBinot(context: Context, note: NoteEntity): Uri? = withContext(Dispatchers.IO) {
+    suspend fun exportNoteToBinot(
+        context: Context,
+        note: NoteEntity,
+        labelColors: Map<String, String> = emptyMap()
+    ): Uri? = withContext(Dispatchers.IO) {
         try {
             val cacheDir = File(context.cacheDir, "shared_notes").apply { mkdirs() }
             val safeTitle = note.title.ifBlank { "Obinot_Note" }.replace(Regex("[^a-zA-Z0-9.-]"), "_")
             val fileName = "${safeTitle}.binot"
             val outFile = File(cacheDir, fileName)
 
+            // Filtrar el mapa global al subset de labels que esta nota usa.
+            val noteLabels = note.label
+                ?.split("|")
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() }
+                ?: emptyList()
+
+            val relevantColors = if (noteLabels.isEmpty() || labelColors.isEmpty()) {
+                emptyMap()
+            } else {
+                noteLabels.mapNotNull { name ->
+                    labelColors[name]?.let { hex -> name to hex }
+                }.toMap()
+            }
+
             ZipOutputStream(BufferedOutputStream(FileOutputStream(outFile), STREAM_BUFFER_SIZE)).use { zos ->
+                // --- data.json ---
                 val json = JSONObject().apply {
-                    put("version", 1)
-                    put("createdBy", "Obinot")  // <-- Identifica el fork sin romper compat
+                    put("version", BINOT_FORMAT_VERSION)
+                    put("createdBy", "Obinot")
                     put("title", note.title)
                     put("rawText", note.rawText)
                     put("summary", note.summary)
@@ -66,6 +102,33 @@ object ImportExportHelper {
                 zos.write(jsonBytes)
                 zos.closeEntry()
 
+                // --- obinot_meta.json (solo si hay algo que meter) ---
+                // Se omite si no hay colores, para no agregar peso a notas simples.
+                // El importador trata la ausencia como "todos los labels con color default".
+                if (relevantColors.isNotEmpty()) {
+                    val colorsObj = JSONObject().apply {
+                        relevantColors.forEach { (name, hex) -> put(name, hex) }
+                    }
+                    val meta = JSONObject().apply {
+                        put("formatVersion", BINOT_FORMAT_VERSION)
+                        put("exportedAt", System.currentTimeMillis())
+                        put("appVersion", "2.0.0")
+                        put("labelColors", colorsObj)
+                    }
+                    val metaBytes = meta.toString().toByteArray(Charsets.UTF_8)
+                    val metaEntry = ZipEntry("obinot_meta.json").apply {
+                        method = ZipEntry.STORED
+                        size = metaBytes.size.toLong()
+                        compressedSize = metaBytes.size.toLong()
+                        val crc = CRC32().apply { update(metaBytes) }
+                        this.crc = crc.value
+                    }
+                    zos.putNextEntry(metaEntry)
+                    zos.write(metaBytes)
+                    zos.closeEntry()
+                }
+
+                // --- audio.mp4 ---
                 if (note.audioPath != null) {
                     val audioFile = File(note.audioPath)
                     if (audioFile.exists()) {
@@ -152,12 +215,28 @@ object ImportExportHelper {
         }
     }
 
-    suspend fun importFile(context: Context, uri: Uri, repository: NoteRepository): Int? = withContext(Dispatchers.IO) {
+    /**
+     * Importa un archivo .binot (v1 o v2) o un audio crudo.
+     *
+     * @param labelRepository opcional. Si se pasa y el archivo es v2 con
+     *                        obinot_meta.json, se aplican los colores de los
+     *                        labels importados. Si es null o el archivo es v1,
+     *                        los labels se crean con el color default (que es
+     *                        el comportamiento histórico).
+     * @return el id de la nota insertada, o null si falló.
+     */
+    suspend fun importFile(
+        context: Context,
+        uri: Uri,
+        repository: NoteRepository,
+        labelRepository: LabelRepository? = null
+    ): Int? = withContext(Dispatchers.IO) {
         try {
             val contentResolver = context.contentResolver
 
             var isBinotArchive = false
             var jsonData = ""
+            var obinotMetaJson: String? = null
             var audioTempFile: File? = null
 
             // LOGIKA BARU: Jangan percaya OS. Langsung bongkar filenya.
@@ -168,19 +247,28 @@ object ImportExportHelper {
                         ZipInputStream(buffered).use { zis ->
                             var entry = zis.nextEntry
                             while (entry != null) {
-                                if (entry.name == "data.json") {
-                                    isBinotArchive = true
-                                    jsonData = zis.bufferedReader(Charsets.UTF_8).readText()
-                                } else if (entry.name == "audio.mp4") {
-                                    val tempAudio = File(context.cacheDir, "temp_import_audio.mp4")
-                                    BufferedOutputStream(tempAudio.outputStream(), STREAM_BUFFER_SIZE).use { output ->
-                                        val buf = ByteArray(STREAM_BUFFER_SIZE)
-                                        var len: Int
-                                        while (zis.read(buf).also { len = it } > 0) {
-                                            output.write(buf, 0, len)
-                                        }
+                                when (entry.name) {
+                                    "data.json" -> {
+                                        isBinotArchive = true
+                                        jsonData = zis.bufferedReader(Charsets.UTF_8).readText()
                                     }
-                                    audioTempFile = tempAudio
+                                    "obinot_meta.json" -> {
+                                        obinotMetaJson = zis.bufferedReader(Charsets.UTF_8).readText()
+                                    }
+                                    "audio.mp4" -> {
+                                        val tempAudio = File(context.cacheDir, "temp_import_audio.mp4")
+                                        BufferedOutputStream(tempAudio.outputStream(), STREAM_BUFFER_SIZE).use { output ->
+                                            val buf = ByteArray(STREAM_BUFFER_SIZE)
+                                            var len: Int
+                                            while (zis.read(buf).also { len = it } > 0) {
+                                                output.write(buf, 0, len)
+                                            }
+                                        }
+                                        audioTempFile = tempAudio
+                                    }
+                                    // transcript.srt y cualquier otra entrada futura
+                                    // se ignoran silenciosamente: forward-compat con
+                                    // versiones más nuevas del formato.
                                 }
                                 zis.closeEntry()
                                 entry = zis.nextEntry
@@ -202,6 +290,41 @@ object ImportExportHelper {
                     audioTempFile!!.copyTo(newAudioFile, overwrite = true)
                     audioTempFile!!.delete()
                     finalAudioPath = newAudioFile.absolutePath
+                }
+
+                // Aplicar colores de labels si es v2 y hay meta + repositorio.
+                // Nota: se hace ANTES de insertar la nota porque si el usuario ya
+                // tenía un label con otro color, queremos actualizarlo al que viene
+                // en el archivo — es la intención explícita del exportador v2.
+                if (labelRepository != null && obinotMetaJson != null) {
+                    try {
+                        val meta = JSONObject(obinotMetaJson)
+                        val colorsObj = meta.optJSONObject("labelColors")
+                        if (colorsObj != null) {
+                            val noteLabels = json.optString("label", "")
+                                .split("|")
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                            for (labelName in noteLabels) {
+                                val hex = colorsObj.optString(labelName, "")
+                                if (hex.isNotBlank()) {
+                                    val existing = labelRepository.getLabel(labelName)
+                                    if (existing == null) {
+                                        labelRepository.createLabel(labelName, hex)
+                                    } else {
+                                        labelRepository.updateColor(labelName, hex)
+                                    }
+                                } else {
+                                    // Asegurar que exista aunque no tenga color
+                                    labelRepository.createLabel(labelName)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Si la meta está malformada, no rompemos el import de la nota.
+                        // Los labels se crearán con default más adelante vía ensureLabelsExist.
+                        e.printStackTrace()
+                    }
                 }
 
                 val newNote = NoteEntity(

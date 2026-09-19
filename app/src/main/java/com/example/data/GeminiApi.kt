@@ -170,8 +170,11 @@ interface GroqApiService {
 }
 
 interface GithubApiService {
-    @Headers("User-Agent: BinotApp")
-    @GET("repos/LexicoON/Binot-fix/releases/latest")
+    // El repo pasó de "Binot-fix" a "Obinot". GitHub mantiene redirect automático
+    // para clones viejos, pero la API de releases NO redirige entre repos renombrados
+    // de forma consistente — por eso hay que apuntar directo al nombre nuevo.
+    @Headers("User-Agent: ObinotApp")
+    @GET("repos/LexicoON/Obinot/releases/latest")
     suspend fun getLatestRelease(): GithubRelease
 }
 

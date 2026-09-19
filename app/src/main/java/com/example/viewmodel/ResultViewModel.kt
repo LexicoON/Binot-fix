@@ -159,10 +159,13 @@ class ResultViewModel(
             onResult(null, "Note is empty!")
             return
         }
+        // Capturamos el mapa de colores ANTES de salir del hilo principal para
+        // no leer un StateFlow desde Dispatchers.IO. Es un snapshot inmutable.
+        val colorsSnapshot = labelColors.value
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             _loadingMessage.value = "Generating secure .binot package..."
-            val uri = ImportExportHelper.exportNoteToBinot(context, currentNote)
+            val uri = ImportExportHelper.exportNoteToBinot(context, currentNote, colorsSnapshot)
             _isLoading.value = false
 
             if (uri != null) {

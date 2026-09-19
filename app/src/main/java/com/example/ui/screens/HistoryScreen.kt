@@ -543,7 +543,7 @@ fun HistoryScreen(
                                         if (noteToShare != null) {
                                             coroutineScope.launch {
                                                 snackbarHostState.showSnackbar("Generating .binot file...")
-                                                val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare)
+                                                val uri = ImportExportHelper.exportNoteToBinot(context, noteToShare, labelColors)
                                                 if (uri != null) {
                                                     val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                                         type = "application/zip"

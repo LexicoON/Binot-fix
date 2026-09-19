@@ -316,6 +316,7 @@ fun SettingsScreen(
     var showCompressionInfoDialog by remember { mutableStateOf(false) }
     var showColorInfoDialog by remember { mutableStateOf(false) }
     var showWarningDialog by remember { mutableStateOf(false) }
+    var showBackupInfoDialog by remember { mutableStateOf(false) }
     var pendingModeSelection by remember { mutableStateOf(-1) }
     var showApplyAllDialog by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
@@ -340,10 +341,17 @@ fun SettingsScreen(
         try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" }
     }
 
+    // Backup v2 (.obinotbak extendido): notas + audio + labels + settings.
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let { viewModel.exportBackup(context, it) { msg -> coroutineScope.launch { snackbarHostState.showSnackbar(msg) } } }
     }
 
+    // Backup legacy (.binotbak v1): solo notas + audio, compatible con Binot 1.x.
+    val exportLegacyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        uri?.let { viewModel.exportBackupLegacy(context, it) { msg -> coroutineScope.launch { snackbarHostState.showSnackbar(msg) } } }
+    }
+
+    // Import unificado: detecta v2 vs v1 automáticamente.
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.importBackup(context, it) { msg -> coroutineScope.launch { snackbarHostState.showSnackbar(msg) } } }
     }
@@ -509,6 +517,29 @@ fun SettingsScreen(
                 )
             },
             confirmButton = { TextButton(onClick = { showColorInfoDialog = false }) { Text("Got it") } }
+        )
+    }
+
+    if (showBackupInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showBackupInfoDialog = false },
+            title = { Text("Notes Backup") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Full Backup (.obinotbak)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Exports all your notes, audio, labels (with their colors), and your preferences. API keys are never included. This is the format Obinot 2.0+ uses and it's the recommended choice for migrating from Binot 1.x to Obinot.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Text("Legacy Backup (.binotbak)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Exports only notes and audio, in the original Binot 1.x format. Use this only if you need to restore the backup on Binot 1.x itself. Labels and preferences are not included.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { showBackupInfoDialog = false }) { Text("Got it") } }
         )
     }
 
@@ -1171,20 +1202,77 @@ fun SettingsScreen(
                     shape = RoundedCornerShape(20.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
-                        Text("Data & System", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Notes Backup", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            Row(horizontalArrangement = Arrangement.End) {
-                                BouncyOutlinedButton(onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, modifier = Modifier.padding(end = 8.dp)) { Text("Import") }
-                                BouncyButton(onClick = { exportLauncher.launch("Obinot_Backup_${formatter.format(Date())}.binotbak") }) { Text("Backup") }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Data & System", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.weight(1f))
+                            IconButton(onClick = { showBackupInfoDialog = true }) {
+                                Icon(Icons.Default.Info, contentDescription = "Backup Info", tint = MaterialTheme.colorScheme.primary)
                             }
                         }
-
                         Spacer(modifier = Modifier.height(16.dp))
+
+                        // --- Backup v2 (.obinotbak extendido) ---
+                        Text(
+                            "Full Backup",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Notes, audio, labels and preferences. Recommended for migrating from Binot 1.x.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            BouncyOutlinedButton(
+                                onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                                modifier = Modifier.weight(1f),
+                                expandOnPress = 0.dp
+                            ) { Text("Import") }
+                            BouncyButton(
+                                onClick = { exportLauncher.launch("Obinot_Backup_${formatter.format(Date())}.obinotbak") },
+                                modifier = Modifier.weight(1f),
+                                expandOnPress = 0.dp
+                            ) { Text("Backup") }
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // --- Backup legacy (.binotbak v1) ---
+                        Text(
+                            "Legacy Backup",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Only notes and audio, in the original Binot 1.x format. Use this if you need to restore the backup on Binot 1.x itself.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        BouncyOutlinedButton(
+                            onClick = { exportLegacyLauncher.launch("Obinot_Legacy_${formatter.format(Date())}.binotbak") },
+                            modifier = Modifier.fillMaxWidth(),
+                            expandOnPress = 0.dp
+                        ) { Text("Backup Legacy (.binotbak)") }
+
+                        Spacer(modifier = Modifier.height(20.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
 
+                        // --- App Version + Update ---
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text("App Version", style = MaterialTheme.typography.bodyLarge)
@@ -1205,12 +1293,12 @@ fun SettingsScreen(
                                 }
                             }
                             when (updateState) {
-                                UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Text("Check Update") }
+                                UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }, expandOnPress = 0.dp) { Text("Check Update") }
                                 UpdateState.Checking -> Button(onClick = {}, enabled = false) { LoadingIndicator(modifier = Modifier.size(20.dp)) }
-                                UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }) { Text("Update App") }
+                                UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }, expandOnPress = 0.dp) { Text("Update App") }
                                 UpdateState.Downloading -> OutlinedButton(onClick = {}) { Text("Downloading") }
-                                UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
-                                UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Retry") }
+                                UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }, expandOnPress = 0.dp) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
+                                UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }, expandOnPress = 0.dp) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Retry") }
                             }
                         }
                     }
@@ -1223,7 +1311,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .bouncyClickable {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/LexicoON/Binot-fix"))
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/LexicoON/Obinot"))
                             context.startActivity(intent)
                         }
                 ) {

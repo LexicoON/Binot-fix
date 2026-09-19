@@ -90,7 +90,8 @@ class MainActivity : ComponentActivity() {
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.provideFactory(
                     appContainer.settingsRepository,
-                    appContainer.noteRepository
+                    appContainer.noteRepository,
+                    appContainer.labelRepository
                 )
             )
             val themeMode by settingsViewModel.themeMode.collectAsState()
@@ -146,7 +147,12 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
     LaunchedEffect(incomingUri) {
         incomingUri?.let { uri ->
             isImportingFromExternal = true
-            val newId = ImportExportHelper.importFile(context, uri, appContainer.noteRepository)
+            val newId = ImportExportHelper.importFile(
+                context = context,
+                uri = uri,
+                repository = appContainer.noteRepository,
+                labelRepository = appContainer.labelRepository
+            )
             mainActivity.incomingIntentUri.value = null
             isImportingFromExternal = false
 
@@ -279,13 +285,18 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         animatedVisibilityScope = this@composable,
                         sharedTransitionScope = this@SharedTransitionLayout,
                         onNoteClick = { id -> navController.navigate("result/$id") },
-                        onImportFile = { uri -> ImportExportHelper.importFile(context, uri, appContainer.noteRepository) },
+                        onImportFile = { uri ->
+                            ImportExportHelper.importFile(
+                                context = context,
+                                uri = uri,
+                                repository = appContainer.noteRepository,
+                                labelRepository = appContainer.labelRepository
+                            )
+                        },
                         useNativePicker = useNativePicker
                     )
                 }
                 composable("history") {
-                    // Faltaba declarar este estado: HistoryScreen recibe useNativePicker
-                    // para respetar el toggle de Settings igual que RecordScreen.
                     val useNativePicker by settingsViewModel.nativePickerEnabled.collectAsState()
 
                     val historyViewModel: HistoryViewModel = viewModel(
@@ -301,7 +312,14 @@ fun BinotApp(appContainer: AppContainer, settingsViewModel: SettingsViewModel, m
                         onNoteClick = { id -> navController.navigate("result/$id") },
                         onTrashClick = { navController.navigate("trash") },
                         useNativePicker = useNativePicker,
-                        onImportFile = { uri -> ImportExportHelper.importFile(context, uri, appContainer.noteRepository) }
+                        onImportFile = { uri ->
+                            ImportExportHelper.importFile(
+                                context = context,
+                                uri = uri,
+                                repository = appContainer.noteRepository,
+                                labelRepository = appContainer.labelRepository
+                            )
+                        }
                     )
                 }
                 composable("trash") {
