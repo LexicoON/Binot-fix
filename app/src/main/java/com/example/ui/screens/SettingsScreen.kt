@@ -952,7 +952,7 @@ fun SettingsScreen(
                         //
                         // AnimatedVisibility con expand/shrink vertical + fade: el bloque
                         // aparece empujando hacia abajo el contenido siguiente, y desaparece
-                        // colapsando su altura. Antes era un if() duro sin transición.
+                        // colapsando su altura.
                         AnimatedVisibility(
                             visible = recordMode == 1,
                             enter = expandVertically(
@@ -1216,15 +1216,17 @@ fun SettingsScreen(
                                     Text("App is up to date.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
-                            AnimatedContent(targetState = updateState, label = "update_btn") { state ->
-                                when (state) {
-                                    UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Text("Check Update") }
-                                    UpdateState.Checking -> Button(onClick = {}, enabled = false) { LoadingIndicator(modifier = Modifier.size(20.dp)) }
-                                    UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }) { Text("Update App") }
-                                    UpdateState.Downloading -> OutlinedButton(onClick = {}) { Text("Downloading") }
-                                    UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
-                                    UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Retry") }
-                                }
+                            // when plano (antes AnimatedContent). El AnimatedContent
+                            // intentaba medir el tamaño del botón mientras el contentPadding
+                            // del BouncyButton lo expandía durante el press → loop de
+                            // medición → crash en long press del Check Update.
+                            when (updateState) {
+                                UpdateState.Idle -> BouncyButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Text("Check Update") }
+                                UpdateState.Checking -> Button(onClick = {}, enabled = false) { LoadingIndicator(modifier = Modifier.size(20.dp)) }
+                                UpdateState.Available -> BouncyButton(onClick = { viewModel.startDownload(context) }) { Text("Update App") }
+                                UpdateState.Downloading -> OutlinedButton(onClick = {}) { Text("Downloading") }
+                                UpdateState.Downloaded -> BouncyButton(onClick = { viewModel.promptInstall(context) }) { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Install") }
+                                UpdateState.Error -> BouncyOutlinedButton(onClick = { viewModel.checkForUpdate(currentVersion) }) { Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(6.dp)); Text("Retry") }
                             }
                         }
                     }

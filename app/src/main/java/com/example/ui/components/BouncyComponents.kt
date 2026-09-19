@@ -9,11 +9,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -32,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -40,18 +43,9 @@ import androidx.compose.ui.unit.dp
  * Reutilizable por cualquier componente que quiera el efecto sin heredar
  * de los Bouncy* predefinidos.
  *
- * Se mantiene público y con la firma original: lo siguen usando el FAB de
- * HistoryScreen, el play button de ResultScreen, NoteCard y el FAB de Result.
- * Esos callers quieren un scale-inward y no un push-outward, por eso no se
- * migraron al nuevo sistema de expansión.
- *
- * [pressedScale] controla cuánto se encoge el elemento al presionarlo.
- * Valores típicos: 0.94 para botones, 0.88 para icon buttons, 0.97 para cards.
- *
- * En taps rápidos, Press y Release llegan casi juntos y el animateTo del
- * press se cancela antes de ser visible. Para garantizar siempre una
- * reacción perceptible, si el scale nunca bajó del umbral se fuerza el
- * squish con snapTo antes del rebound.
+ * Lo siguen usando: FAB de HistoryScreen, play button redondo de ResultScreen,
+ * NoteCard de HistoryScreen, TrashedNoteCard de TrashScreen, y el play button
+ * del side panel de ResultScreen. Esos callers quieren un scale-inward.
  */
 suspend fun observeBouncyPress(
     interactionSource: MutableInteractionSource,
@@ -81,12 +75,8 @@ suspend fun observeBouncyPress(
 }
 
 /**
- * Helper interno: estado booleano de press, derivado del InteractionSource.
- * Reemplaza al patrón `Animatable<Float>` que usaban los Bouncy* antes.
- *
- * El sistema nuevo no mide un valor continuo — solo binario pressed/notpressed.
- * La animación concreta (padding, width, etc.) la maneja cada componente con
- * `animateDpAsState`.
+ * Estado booleano de press, derivado del InteractionSource.
+ * Se usa para manejar la animación de expansión en los Bouncy* (contentPadding).
  */
 @Composable
 private fun rememberPressState(
@@ -109,23 +99,15 @@ private fun rememberPressState(
     return isPressed
 }
 
-/**
- * Curva común a todos los Bouncy*: spring elástico de baja rigidez.
- * Usar la misma curva en todos los componentes hace que la sensación de
- * "presión elástica" sea consistente en toda la app.
- */
 private fun <T> bouncySpring() = spring<T>(
     dampingRatio = Spring.DampingRatioMediumBouncy,
     stiffness = Spring.StiffnessMedium
 )
 
 /**
- * Modificador que aplica el efecto bouncy a cualquier elemento clickable.
- * Uso: Modifier.bouncyClickable { onClick() }
- *
- * Se mantiene con la firma original (scale squish). Los Bouncy* globales ya
- * no lo usan, pero callers externos que quieran un clickable con feedback
- * pueden seguir invocándolo.
+ * Modificador clickable con efecto bouncy (scale squish).
+ * Se mantiene para callers externos que quieran el squish en un container
+ * arbitrario (ej: card clickeable en Settings).
  */
 @Composable
 fun Modifier.bouncyClickable(
@@ -155,20 +137,20 @@ fun Modifier.bouncyClickable(
 // ============================================================
 
 /**
- * Botón relleno con el comportamiento del Record button:
- * al presionar, se expande horizontalmente hacia los costados y empuja
- * a los vecinos en el Row/Column padre.
+ * Botón relleno con el comportamiento del Record button: al presionar, la
+ * superficie visible crece horizontalmente y empuja a los vecinos.
  *
- * Implementación: en vez de escalar el botón (scale inward), se anima el
- * padding horizontal aplicado al Modifier externo. El [Button] mide su
- * contenido natural; al crecer el padding, crece el ancho medido, y el
- * `Arrangement.spacedBy` del Row padre redistribuye el espacio.
+ * Se anima `contentPadding` (no el modifier externo). M3 Button internamente
+ * hace `Row(Modifier.padding(contentPadding))` dentro de un Surface que se
+ * dimensiona al Row. Si el contentPadding horizontal crece, la superficie del
+ * botón crece → el usuario VE el botón agrandarse.
+ *
+ * Usar `Modifier.padding(horizontal = extraPad)` externo NO funciona: solo
+ * agrega espacio vacío alrededor, la superficie visible no cambia.
  *
  * IMPORTANTE: si el caller pasa `Modifier.fillMaxWidth()` o `Modifier.weight(1f)`,
- * el botón NO puede crecer (el ancho ya está asignado). En esos casos, pasar
- * `expandOnPress = 0.dp` para evitar el efecto visual raro de "contenido que
- * se achica". Default 12.dp cubre la mayoría de los casos (botones sueltos
- * en dialogs, alineados al End de un Column, etc).
+ * el botón no puede crecer (el ancho ya está asignado). En esos casos pasar
+ * `expandOnPress = 0.dp`.
  */
 @Composable
 fun BouncyButton(
@@ -187,13 +169,23 @@ fun BouncyButton(
         label = "bouncyButtonPad"
     )
 
+    val layoutDirection = LocalLayoutDirection.current
+    val basePadding = ButtonDefaults.ContentPadding
+    val contentPadding = PaddingValues(
+        start = basePadding.calculateStartPadding(layoutDirection) + extraPad,
+        top = basePadding.calculateTopPadding(),
+        end = basePadding.calculateEndPadding(layoutDirection) + extraPad,
+        bottom = basePadding.calculateBottomPadding()
+    )
+
     Button(
         onClick = onClick,
         enabled = enabled,
         colors = colors,
         shapes = ButtonDefaults.shapes(),
+        contentPadding = contentPadding,
         interactionSource = interactionSource,
-        modifier = modifier.padding(horizontal = extraPad),
+        modifier = modifier,
         content = content
     )
 }
@@ -204,7 +196,7 @@ fun BouncyButton(
 
 /**
  * Variante outlined del BouncyButton. Misma filosofía: expansión horizontal
- * al presionar, push a vecinos, sin scale.
+ * vía contentPadding al presionar, push a vecinos, sin scale.
  */
 @Composable
 fun BouncyOutlinedButton(
@@ -222,12 +214,22 @@ fun BouncyOutlinedButton(
         label = "bouncyOutlinedPad"
     )
 
+    val layoutDirection = LocalLayoutDirection.current
+    val basePadding = ButtonDefaults.ContentPadding
+    val contentPadding = PaddingValues(
+        start = basePadding.calculateStartPadding(layoutDirection) + extraPad,
+        top = basePadding.calculateTopPadding(),
+        end = basePadding.calculateEndPadding(layoutDirection) + extraPad,
+        bottom = basePadding.calculateBottomPadding()
+    )
+
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
         shapes = ButtonDefaults.shapes(),
+        contentPadding = contentPadding,
         interactionSource = interactionSource,
-        modifier = modifier.padding(horizontal = extraPad),
+        modifier = modifier,
         content = content
     )
 }
@@ -237,43 +239,36 @@ fun BouncyOutlinedButton(
 // ============================================================
 
 /**
- * Icon button con expansión horizontal al presionar.
+ * Icon button con squish al presionar (scale-inward, como el original).
  *
- * El IconButton de M3 tiene un tamaño fijo de 48x48. Al agregar padding
- * horizontal externo, el ícono queda centrado dentro de un área más ancha,
- * y el CircleShape del ripple interno pasa a verse como un óvalo ancho.
- *
- * No usa `Modifier.padding` (que solo agrega espacio vacío fuera del botón
- * sin que el botón "crezca"): usa `Modifier.width(48.dp + extraPad*2)` para
- * forzar el ancho del botón entero. Así el ripple/click area crece con él.
- *
- * `expandOnPress` por defecto es chico (6.dp) porque los icon buttons suelen
- * estar en top bars y rows compactos donde una expansión grande rompe el
- * layout. Ajustar por caller si hace falta.
+ * Se mantiene con scale en vez de expansión porque los IconButton de M3 tienen
+ * un tamaño interno fijo (`IconButtonTokens.StateLayerSize`) y no exponen
+ * contentPadding. La única forma de agrandar el ripple sería romper el
+ * encapsulamiento de M3. El squish funciona bien, es inmediato, y no afecta
+ * layout — ideal para top bars y rows compactos.
  */
 @Composable
 fun BouncyIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    expandOnPress: Dp = 6.dp,
+    expandOnPress: Dp = 6.dp, // ignorado, conservado por compatibilidad de API
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by rememberPressState(interactionSource, enabled)
-    val extraPad by animateDpAsState(
-        targetValue = if (isPressed) expandOnPress else 0.dp,
-        animationSpec = bouncySpring(),
-        label = "bouncyIconPad"
-    )
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(interactionSource) {
+        observeBouncyPress(interactionSource, scale, pressedScale = 0.88f)
+    }
 
     IconButton(
         onClick = onClick,
         enabled = enabled,
         interactionSource = interactionSource,
-        modifier = modifier
-            .width(48.dp + extraPad * 2)
-            .height(48.dp),
+        modifier = modifier.graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        },
         content = content
     )
 }
@@ -285,8 +280,9 @@ fun BouncyIconButton(
 /**
  * Cápsula/pill horizontal con expansión al presionar.
  *
- * Preserva la forma: el CircleShape se estira horizontalmente y queda como
- * una cápsula más ancha (mismo radio = altura/2). No se vuelve rectangular.
+ * El padding interno está DESPUÉS del clip/background en la cadena de modifiers,
+ * así que la superficie visible crece con el padding. La forma se mantiene:
+ * CircleShape se estira horizontalmente y queda como cápsula más ancha.
  */
 @Composable
 fun BouncyCapsule(
@@ -326,9 +322,8 @@ fun BouncyCapsule(
 
 /**
  * Chip compacto con expansión al presionar.
- *
- * Preserva la forma: RoundedCornerShape(50) sigue siendo pill, solo crece
- * horizontalmente.
+ * Igual que BouncyCapsule: el padding interno está después del background,
+ * así que la superficie visible crece.
  */
 @Composable
 fun BouncyChip(
