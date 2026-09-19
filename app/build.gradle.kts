@@ -7,9 +7,9 @@ plugins {
 }
 
 android {
-  // Namespace sigue siendo com.example en A3.1.
+  // Namespace migrado a com.obinot.app en A3.2.
   // A3.2 lo cambia a com.obinot.app junto con todos los .kt.
-  namespace = "com.example"
+  namespace = "com.obinot.app"
   compileSdk { version = release(37) }
 
   defaultConfig {
