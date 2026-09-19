@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.asState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -84,6 +85,9 @@ suspend fun observeBouncyPress(
  * Eso es lo que garantiza que un tap rápido (press+release en < 100ms) siempre
  * muestre una animación visible: si al soltar la animación de expansión apenas
  * arrancó (value < 40% del target), snapTo al 70% antes de animar de vuelta a 0.
+ *
+ * Retorna un State<Dp>: internamente es un Animatable expuesto con `.asState()`
+ * (Animatable NO implementa State, hay que convertirlo).
  */
 @Composable
 private fun rememberBouncyExpand(
@@ -124,7 +128,7 @@ private fun rememberBouncyExpand(
             }
         }
     }
-    return padding
+    return padding.asState()
 }
 
 /**
